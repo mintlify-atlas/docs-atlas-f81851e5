@@ -1,0 +1,133 @@
+{
+  "projectType": "framework",
+  "projectName": "Hypergraph",
+  "projectDescription": "A hierarchical and modular graph workflow framework for AI & ML",
+  "theme": "palm",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "comparison",
+              "when-to-use"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/nodes",
+              "core-concepts/graphs",
+              "core-concepts/runners",
+              "core-concepts/execution-modes"
+            ]
+          },
+          {
+            "group": "Patterns",
+            "pages": [
+              "patterns/simple-pipeline",
+              "patterns/routing",
+              "patterns/agentic-loops",
+              "patterns/hierarchical",
+              "patterns/multi-agent",
+              "patterns/streaming",
+              "patterns/human-in-the-loop",
+              "patterns/caching"
+            ]
+          },
+          {
+            "group": "Real-World Examples",
+            "pages": [
+              "examples/rag-pipeline",
+              "examples/multi-turn-rag",
+              "examples/data-pipeline",
+              "examples/evaluation-harness",
+              "examples/prompt-optimization"
+            ]
+          },
+          {
+            "group": "How-To Guides",
+            "pages": [
+              "guides/batch-processing",
+              "guides/visualize-graphs",
+              "guides/observe-execution",
+              "guides/rename-and-adapt",
+              "guides/integrate-with-llms",
+              "guides/test-without-framework"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Components",
+            "pages": [
+              "api/nodes",
+              "api/graph",
+              "api/runners",
+              "api/input-spec"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "api/gates",
+              "api/events",
+              "api/cache"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Design",
+        "groups": [
+          {
+            "group": "Philosophy",
+            "pages": [
+              "design/philosophy",
+              "design/guiding-principles",
+              "design/inspiration",
+              "design/roadmap"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Unified framework for DAGs, branches, and agentic loops",
+    "Hierarchical graph composition with nested graphs",
+    "Automatic edge inference from parameter names",
+    "Build-time validation with strict type checking",
+    "Pure, testable functions without framework dependencies",
+    "Interactive graph visualization",
+    "Sync and async execution with streaming support",
+    "Human-in-the-loop workflows with pause/resume"
+  ],
+  "publicApiSurface": [
+    "@node - Function decorator for graph nodes",
+    "@route - Conditional routing with multiple targets",
+    "@ifelse - Binary conditional branching",
+    "@interrupt - Human-in-the-loop pause points",
+    "Graph - Main graph construction class",
+    "SyncRunner - Synchronous graph execution",
+    "AsyncRunner - Asynchronous graph execution",
+    "FunctionNode - Wrapped function node",
+    "GraphNode - Nested graph as node",
+    "GateNode - Routing control node",
+    "EventDispatcher - Execution event system",
+    "RichProgressProcessor - Progress bar visualization",
+    "InMemoryCache - In-memory result caching",
+    "DiskCache - Persistent disk caching",
+    "END - Sentinel for terminating execution"
+  ]
+}
