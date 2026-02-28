@@ -1,0 +1,273 @@
+---
+title: Exceptions
+description: Exception types raised during graph construction and execution
+---
+
+Hypergraph defines specific exception types for different error conditions. All exceptions are exported from the main package and can be caught for error handling.
+
+## Exception Types
+
+### MissingInputError
+
+Raised when attempting to execute a graph without providing all required input values (those not satisfied by edges, bindings, or defaults).
+
+```python
+from hypergraph import MissingInputError
+
+try:
+    result = runner.run(graph, {"x": 10})  # Missing required input 'y'
+except MissingInputError as e:
+    print(f"Missing: {e.missing}")      # ['y']
+    print(f"Provided: {e.provided}")    # ['x']
+```
+
+<ParamField path="missing" type="list[str]">
+  List of missing input parameter names
+</ParamField>
+
+<ParamField path="provided" type="list[str]">
+  List of provided input parameter names
+</ParamField>
+
+<ParamField path="message" type="str">
+  Human-readable error message
+</ParamField>
+
+**When raised:**
+- Runner cannot start execution because required inputs are missing
+- Occurs during `runner.run()` or `runner.map()` before any nodes execute
+
+**How to fix:**
+- Check `graph.inputs.required` to see all required inputs
+- Provide missing values in the `values` dict
+- Or use `graph.bind(...)` to pre-fill the values
+
+---
+
+### InfiniteLoopError
+
+Raised when a graph with cycles exceeds the `max_iterations` limit without reaching a stable state or END sentinel.
+
+```python
+from hypergraph import InfiniteLoopError
+
+try:
+    result = runner.run(graph, {"query": "hello"}, max_iterations=10)
+except InfiniteLoopError as e:
+    print(f"Exceeded {e.max_iterations} iterations")
+    # The graph may have an infinite loop
+```
+
+<ParamField path="max_iterations" type="int">
+  The iteration limit that was exceeded
+</ParamField>
+
+<ParamField path="message" type="str">
+  Human-readable error message with guidance
+</ParamField>
+
+**When raised:**
+- Cyclic graph runs for `max_iterations` supersteps without terminating
+- No route node returned `END` to stop execution
+
+**How to fix:**
+- Add termination logic with `@route` that returns `END`
+- Increase `max_iterations` if legitimate long-running workflow
+- Check for logic errors in routing conditions
+
+<Tip>
+Default `max_iterations` is 10. For agentic workflows that need more turns, explicitly set a higher limit:
+```python
+result = runner.run(graph, values, max_iterations=50)
+```
+</Tip>
+
+---
+
+### IncompatibleRunnerError
+
+Raised when attempting to execute a graph with a runner that lacks necessary capabilities.
+
+```python
+from hypergraph import IncompatibleRunnerError, SyncRunner
+
+@node(output_name="data")
+async def fetch(url: str) -> dict:
+    # Async node
+    return await client.get(url)
+
+graph = Graph([fetch])
+
+try:
+    runner = SyncRunner()
+    result = runner.run(graph, {"url": "..."})  # Error!
+except IncompatibleRunnerError as e:
+    print(e.message)
+    # "SyncRunner cannot execute async nodes. Use AsyncRunner instead."
+    print(e.node_name)    # "fetch"
+    print(e.capability)   # "async"
+```
+
+<ParamField path="message" type="str">
+  Human-readable error message describing the incompatibility
+</ParamField>
+
+<ParamField path="node_name" type="str | None">
+  Name of the incompatible node (if applicable)
+</ParamField>
+
+<ParamField path="capability" type="str | None">
+  Name of the missing capability (e.g., "async", "generator")
+</ParamField>
+
+**Common causes:**
+- Using `SyncRunner` with async nodes → Use `AsyncRunner`
+- Using `SyncRunner` with async generators → Use `AsyncRunner`
+
+**Runner capability matrix:**
+
+| Feature | SyncRunner | AsyncRunner |
+|---------|------------|-------------|
+| Sync functions | ✅ | ✅ |
+| Async functions | ❌ | ✅ |
+| Sync generators | ✅ | ✅ |
+| Async generators | ❌ | ✅ |
+| Concurrency | ❌ | ✅ |
+
+---
+
+### GraphConfigError
+
+Raised during graph construction when there are configuration issues like invalid routing targets, name conflicts, or type mismatches with `strict_types=True`.
+
+```python
+from hypergraph import GraphConfigError, route, END
+
+@route(targets=["step_a", "step_b", END])
+def decide(x: int) -> str:
+    return "step_c"  # Typo - not in targets!
+
+try:
+    graph = Graph([decide, step_a, step_b])
+except GraphConfigError as e:
+    print(e)
+    # Route target 'step_c' not found in node 'decide'
+    # Valid targets: ['step_a', 'step_b', 'END']
+    # Did you mean 'step_a'?
+```
+
+**When raised:**
+- Route targets reference non-existent nodes
+- Type mismatch with `strict_types=True`
+- Name conflicts between nodes
+- Invalid graph configuration
+
+**Build-time validation:** This error occurs when constructing the `Graph`, not at runtime, so you catch errors early.
+
+---
+
+### RenameError
+
+Raised when a rename operation (`with_inputs`, `with_outputs`, `with_name`) references a non-existent parameter name.
+
+```python
+from hypergraph import RenameError, node
+
+@node(output_name="result")
+def process(x: int) -> int:
+    return x * 2
+
+try:
+    # Try to rename non-existent parameter
+    renamed = process.with_inputs(y="input")
+except RenameError as e:
+    print(e)
+    # 'y' not found. Current inputs: ('x',)
+```
+
+The error message includes rename history context:
+
+```python
+renamed = process.with_inputs(x="value")
+
+try:
+    # 'x' was already renamed to 'value'
+    renamed.with_inputs(x="different")
+except RenameError as e:
+    print(e)
+    # 'x' was renamed to 'value'. Current inputs: ('value',)
+```
+
+**When raised:**
+- Attempting to rename an input/output that doesn't exist
+- Attempting to use the old name after renaming
+
+**How to avoid:**
+- Check `node.inputs` and `node.outputs` before renaming
+- Chain renames carefully and use the current names
+
+---
+
+## Error Handling Patterns
+
+### Catching Specific Errors
+
+```python
+from hypergraph import (
+    MissingInputError,
+    InfiniteLoopError,
+    IncompatibleRunnerError,
+    SyncRunner
+)
+
+try:
+    result = runner.run(graph, values, max_iterations=20)
+except MissingInputError as e:
+    print(f"Please provide: {', '.join(e.missing)}")
+except InfiniteLoopError as e:
+    print(f"Graph didn't terminate after {e.max_iterations} iterations")
+except IncompatibleRunnerError as e:
+    print(f"Cannot run: {e.message}")
+```
+
+### Validation Before Execution
+
+```python
+# Check required inputs before running
+if missing := set(graph.inputs.required) - set(values.keys()):
+    print(f"Missing inputs: {missing}")
+    # Prompt user or use defaults
+
+# Check runner compatibility
+if graph.has_async_nodes:
+    runner = AsyncRunner()
+else:
+    runner = SyncRunner()
+
+result = runner.run(graph, values)
+```
+
+### Graph Construction Validation
+
+```python
+from hypergraph import GraphConfigError
+
+try:
+    graph = Graph(nodes=[...], strict_types=True)
+except GraphConfigError as e:
+    print(f"Graph configuration error: {e}")
+    # Fix the graph definition
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Runners" icon="play" href="/api/runners">
+    Error handling options in runners
+  </Card>
+  <Card title="Graph" icon="diagram-project" href="/api/graph">
+    Build-time validation with Graph
+  </Card>
+</CardGroup>

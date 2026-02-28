@@ -383,6 +383,187 @@ Supports standard dict operations:
 - `result.values()` - Get output values
 - `result.items()` - Get (name, value) pairs
 
+## PauseInfo
+
+Information about a paused execution from an `@interrupt` node. Returned in `RunResult.pause` when execution pauses for human input.
+
+```python
+from hypergraph import interrupt, AsyncRunner, Graph
+
+@interrupt(output_name="decision")
+def approval(draft: str) -> str | None:
+    return None  # Pause for human review
+
+graph = Graph([generate_draft, approval, finalize])
+runner = AsyncRunner()
+
+result = await runner.run(graph, {"prompt": "Write a blog post"})
+
+if result.paused:
+    pause_info = result.pause
+    print(f"Paused at: {pause_info.node_name}")
+    print(f"Value: {pause_info.value}")
+    print(f"Resume key: {pause_info.response_key}")
+    
+    # Resume with human input
+    result = await runner.run(graph, {
+        "prompt": "Write a blog post",
+        pause_info.response_key: "approved"
+    })
+```
+
+### Properties
+
+<ResponseField name="node_name" type="str">
+  Name of the InterruptNode that paused (uses "/" for nested graphs)
+</ResponseField>
+
+<ResponseField name="output_param" type="str">
+  The first output parameter name (for single-output nodes)
+</ResponseField>
+
+<ResponseField name="value" type="Any">
+  The first input value surfaced to the caller (for single-input interrupts)
+</ResponseField>
+
+<ResponseField name="output_params" type="tuple[str, ...] | None">
+  All output parameter names if multi-output node, else None
+</ResponseField>
+
+<ResponseField name="values" type="dict[str, Any] | None">
+  All input values as `{name: value}` if multi-input interrupt, else None
+</ResponseField>
+
+<ResponseField name="response_key" type="str" getter>
+  Key to use in values dict when resuming execution.
+  
+  - Top-level interrupt: returns `output_param` directly (e.g., `"decision"`)
+  - Nested interrupt: dot-separated path (e.g., `"review.decision"`)
+</ResponseField>
+
+<ResponseField name="response_keys" type="dict[str, str]" getter>
+  Mapping of all output names to their resume keys (for multi-output interrupts)
+</ResponseField>
+
+### Multi-Output Example
+
+```python
+@interrupt(output_name=("approved", "feedback"))
+def review(draft: str) -> tuple[bool | None, str | None]:
+    return None, None  # Pause for both values
+
+result = await runner.run(graph, values)
+
+if result.paused:
+    pause = result.pause
+    print(pause.output_params)  # ('approved', 'feedback')
+    print(pause.response_keys)  # {'approved': '...', 'feedback': '...'}
+    
+    # Resume with all values
+    result = await runner.run(graph, {
+        **values,
+        pause.response_keys["approved"]: True,
+        pause.response_keys["feedback"]: "Looks good!"
+    })
+```
+
+---
+
+## ErrorHandling
+
+Type for controlling error behavior during batch processing with `runner.map()`.
+
+```python
+from typing import Literal
+
+ErrorHandling = Literal["raise", "continue"]
+```
+
+### Values
+
+<ParamField path="raise" type="str">
+  Stop immediately on first error and raise the exception (default)
+</ParamField>
+
+<ParamField path="continue" type="str">
+  Continue processing remaining items even if some fail
+</ParamField>
+
+### Usage
+
+```python
+# Stop on first error (default)
+results = runner.map(
+    graph,
+    {"x": [1, 2, 3, 4]},
+    map_over="x",
+    error_handling="raise"  # Raises immediately if any item fails
+)
+
+# Continue despite errors
+results = runner.map(
+    graph,
+    {"x": [1, 2, 3, 4]},
+    map_over="x",
+    error_handling="continue"  # Returns all results, check status
+)
+
+# Check individual results
+for i, result in enumerate(results):
+    if result.status == "completed":
+        print(f"Item {i}: {result['output']}")
+    else:
+        print(f"Item {i} failed: {result.error}")
+```
+
+<Tip>
+Use `error_handling="continue"` for batch processing where you want to collect all successful results even if some items fail. Check `result.status` to filter successes from failures.
+</Tip>
+
+---
+
+## RunStatus
+
+Enum indicating the outcome of graph execution.
+
+```python
+from enum import Enum
+
+class RunStatus(str, Enum):
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PAUSED = "paused"
+```
+
+### Values
+
+<ResponseField name="COMPLETED" type="str">
+  Graph executed successfully to completion
+</ResponseField>
+
+<ResponseField name="FAILED" type="str">
+  Graph execution failed with an error
+</ResponseField>
+
+<ResponseField name="PAUSED" type="str">
+  Graph execution paused at an `@interrupt` node waiting for input
+</ResponseField>
+
+### Usage
+
+```python
+result = runner.run(graph, values)
+
+if result.status == RunStatus.COMPLETED:
+    print("Success:", result["output"])
+elif result.status == RunStatus.FAILED:
+    print("Error:", result.error)
+elif result.status == RunStatus.PAUSED:
+    print("Paused at:", result.pause.node_name)
+```
+
+---
+
 ## BaseRunner
 
 Abstract base class for all runners. Use SyncRunner or AsyncRunner instead of subclassing directly.

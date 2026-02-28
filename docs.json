@@ -94,7 +94,8 @@
             "pages": [
               "api/gates",
               "api/events",
-              "api/cache"
+              "api/cache",
+              "api/exceptions"
             ]
           }
         ]
