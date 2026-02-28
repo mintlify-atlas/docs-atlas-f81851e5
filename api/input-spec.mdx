@@ -1,0 +1,208 @@
+---
+title: InputSpec
+description: Graph input specification and parameter categorization
+---
+
+# InputSpec
+
+The InputSpec dataclass categorizes graph input parameters into required, optional, and cycle entrypoint parameters.
+
+## InputSpec Class
+
+```python
+from hypergraph import Graph, node
+
+@node(output_name="result")
+def process(x: int, y: int = 10) -> int:
+    return x + y
+
+graph = Graph([process])
+print(graph.inputs.required)  # ('x',)
+print(graph.inputs.optional)  # ('y',)
+print(graph.inputs.all)       # ('x', 'y')
+```
+
+### Attributes
+
+<ResponseField name="required" type="tuple[str, ...]">
+  Parameters with no edge, no default, and not bound. Must always be provided at runtime
+</ResponseField>
+
+<ResponseField name="optional" type="tuple[str, ...]">
+  Parameters with no edge but have a default OR are bound. Can be omitted (fallback exists)
+</ResponseField>
+
+<ResponseField name="entrypoints" type="dict[str, tuple[str, ...]]">
+  Dict mapping cycle node name → tuple of params needed to enter the cycle at that node. Pick ONE entrypoint per cycle
+</ResponseField>
+
+<ResponseField name="bound" type="dict[str, Any]">
+  Values that were bound via `graph.bind()` or nested GraphNode bindings
+</ResponseField>
+
+### Properties
+
+<ResponseField name="all" type="tuple[str, ...]">
+  All input names (required + optional + entrypoint params), deduplicated
+</ResponseField>
+
+## Parameter Categorization
+
+InputSpec follows the "edge cancels default" rule:
+
+<CodeGroup>
+
+```python Required
+# No edge, no default, not bound -> required
+@node(output_name="result")
+def process(x: int) -> int:  # x is required
+    return x * 2
+```
+
+```python Optional
+# No edge, has default OR bound -> optional
+@node(output_name="result")
+def process(x: int = 10) -> int:  # x is optional (has default)
+    return x * 2
+
+graph = Graph([process]).bind(x=5)  # x is optional (bound)
+```
+
+```python Cycle Entrypoints
+# Cycle-produced params needed to bootstrap -> entrypoint
+@node(output_name="count")
+def increment(count: int) -> int:
+    return count + 1
+
+graph = Graph([increment])  # cyclic: count -> increment -> count
+print(graph.inputs.entrypoints)  # {'increment': ('count',)}
+```
+
+</CodeGroup>
+
+## Usage
+
+The InputSpec is computed automatically when you access `graph.inputs`:
+
+```python
+from hypergraph import Graph, node
+
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+@node(output_name="result")
+def add(doubled: int, y: int = 5) -> int:
+    return doubled + y
+
+graph = Graph([double, add])
+
+# InputSpec is cached per graph instance
+inputs = graph.inputs
+
+print(inputs.required)   # ('x',) - no default, no edge
+print(inputs.optional)   # ('y',) - has default
+print(inputs.all)        # ('x', 'y')
+print(inputs.bound)      # {} - no bindings yet
+```
+
+### With Bindings
+
+```python
+graph = graph.bind(y=10)
+
+print(graph.inputs.required)   # ('x',)
+print(graph.inputs.optional)   # ('y',)
+print(graph.inputs.bound)      # {'y': 10}
+```
+
+### With Selection
+
+```python
+@node(output_name="a")
+def node_a(x: int) -> int:
+    return x
+
+@node(output_name="b")
+def node_b(y: int) -> int:
+    return y
+
+graph = Graph([node_a, node_b])
+print(graph.inputs.required)  # ('x', 'y')
+
+# Select only 'a' - narrows inputs to what's needed
+graph_selected = graph.select("a")
+print(graph_selected.inputs.required)  # ('x',) - only x needed for 'a'
+```
+
+### With Entrypoints
+
+```python
+@node(output_name="x")
+def node_a(z: int) -> int:
+    return z
+
+@node(output_name="y")
+def node_b(x: int) -> int:
+    return x + 1
+
+@node(output_name="z")
+def node_c(y: int) -> int:
+    return y * 2
+
+graph = Graph([node_a, node_b, node_c])  # cyclic: z->x->y->z
+
+print(graph.inputs.entrypoints)
+# {'node_a': ('z',), 'node_b': ('x',), 'node_c': ('y',)}
+# Pick ONE entrypoint to bootstrap the cycle
+```
+
+### With Entry Point Configuration
+
+```python
+@node(output_name="intermediate")
+def upstream(x: int) -> int:
+    return x * 2
+
+@node(output_name="result")
+def downstream(intermediate: int) -> int:
+    return intermediate + 1
+
+graph = Graph([upstream, downstream])
+print(graph.inputs.required)  # ('x',)
+
+# Start from downstream - upstream excluded
+graph_entry = graph.with_entrypoint("downstream")
+print(graph_entry.inputs.required)  # ('intermediate',) - skip upstream
+```
+
+## Cycle Entrypoints
+
+For cyclic graphs, InputSpec identifies which parameters are needed to bootstrap each cycle. You must provide values for ONE entrypoint per cycle.
+
+```python
+from hypergraph import Graph, node
+
+@node(output_name="messages")
+def add_response(messages: list, response: str) -> list:
+    return messages + [response]
+
+@node(output_name="response")
+def llm(messages: list) -> str:
+    return "AI response"
+
+graph = Graph([add_response, llm])
+
+print(graph.inputs.entrypoints)
+# {'add_response': ('messages',), 'llm': ('messages',)}
+
+# Start at 'llm' node
+result = runner.run(graph, {"messages": ["Hello"]})
+
+# Or start at 'add_response' node
+result = runner.run(graph, {"messages": [], "response": "First"})
+```
+
+<Note>
+  Cycle entrypoints are distinct from `.with_entrypoint()` configuration. Entrypoints in InputSpec identify which node params can bootstrap a cycle, while `.with_entrypoint()` explicitly excludes upstream nodes from execution.
+</Note>

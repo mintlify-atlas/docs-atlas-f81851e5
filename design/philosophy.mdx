@@ -1,0 +1,165 @@
+---
+title: 'Philosophy'
+description: 'Why Hypergraph exists and what problems it solves'
+icon: 'lightbulb'
+---
+
+Hypergraph is a graph-native execution system that supports DAGs, cycles, branches, and multi-turn interactions — all while maintaining pure, portable functions.
+
+<CardGroup cols={2}>
+  <Card title="Pure Functions" icon="function">
+    Nodes are testable without the framework. Your business logic stays portable.
+  </Card>
+  <Card title="Automatic Wiring" icon="diagram-project">
+    Edges inferred from matching names. No manual configuration needed.
+  </Card>
+  <Card title="Unified Execution" icon="arrows-spin">
+    Same model for DAGs, agents, and everything in between.
+  </Card>
+  <Card title="Build-Time Validation" icon="shield-check">
+    Catch errors at construction, not hours into a run.
+  </Card>
+</CardGroup>
+
+## The Journey: From Hierarchical DAGs to Full Graph Support
+
+### Where It Started: DAGs Done Right
+
+Hypergraph began as an answer to existing DAG frameworks. The key innovation was **hierarchical composition** — pipelines are nodes that can be nested infinitely.
+
+This enabled:
+- Reusable pipeline components
+- Modular testing (test small pipelines, compose into large ones)
+- Visual hierarchy (expand/collapse nested pipelines)
+- "Think singular, scale with map" — write for one item, map over collections
+
+<Note>
+  **DAGs remain a first-class citizen in hypergraph.** For ETL, batch processing, and single-pass ML inference, DAGs are the right model. Hypergraph executes them efficiently.
+</Note>
+
+### Where DAGs Hit the Wall
+
+The DAG constraint (no cycles) works beautifully for:
+- ETL workflows
+- Single-pass ML inference
+- Batch data processing
+
+But it **fundamentally breaks** for modern AI workflows:
+
+| Use Case | Why DAGs Fail |
+|----------|---------------|
+| **Multi-turn RAG** | User asks, system retrieves and answers, user follows up, system needs to retrieve **more** and refine. Needs to loop back. |
+| **Agentic workflows** | LLM decides next action, may need to retry/refine until satisfied |
+| **Iterative refinement** | Generate, evaluate, if not good enough, generate again |
+| **Conversational AI** | Maintain conversation state, allow user to steer at any point |
+
+### The Inciting Incident
+
+The breaking point was building a multi-turn RAG system where:
+
+1. User asks a question
+2. System retrieves documents and generates answer
+3. User says "can you explain X in more detail?"
+4. System needs to **retrieve more documents** using conversation context
+5. System refines the answer
+
+Step 4 is **impossible** in a DAG — you cannot loop back to retrieval. The entire architecture assumes single-pass execution.
+
+## The Design Choice: Functions as Contracts
+
+When it came time to support cycles, hypergraph doubled down on its core idea: **functions define their own contracts through parameters and named outputs.**
+
+This means:
+- **Inputs are parameters** — what a function needs is visible in its signature
+- **Outputs are named** — what a function produces is declared with `output_name`
+- **Edges are inferred** — matching names create connections automatically
+- **Functions are portable** — they work standalone, testable without the framework
+
+<Tip>
+  This extends naturally to cycles. A function that accumulates conversation history just takes `history` as a parameter and returns a new `history`. The graph handles iteration.
+</Tip>
+
+## The Core Insight: Automatic Edge Inference
+
+In hypergraph, edges are inferred from matching names. **Name your outputs, and the framework connects them to matching inputs.**
+
+Nodes define what flows through the system via their signatures:
+- Input parameters declare what a node needs
+- Output names declare what a node produces
+- Edges are inferred from matching names — no manual wiring
+
+Pure functions with clear contracts — the framework handles the wiring.
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return model.embed(text)
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return vector_db.search(embedding)
+
+# Edge automatically inferred: embed.embedding → retrieve.embedding
+graph = Graph([embed, retrieve])
+```
+
+## Dynamic Graphs with Build-Time Validation
+
+Hypergraph enables **fully dynamic graph construction** with validation at build time (when `Graph()` is called), not compile time.
+
+This matters for AI applications where:
+- Available tools may be discovered at runtime
+- Graph structure depends on configuration
+- Nodes are generated programmatically
+
+### Why This Works in the AI Era
+
+LLMs already work in a write-then-validate loop — they write code, then get compiler/runtime feedback to fix issues. **Build-time validation = compiler feedback.**
+
+Both approaches catch errors before runtime. The difference is *when* validation happens (compile time vs build time), not *whether* it happens.
+
+## What This Enables
+
+<CardGroup cols={2}>
+  <Card title="DAG Workflows" icon="diagram-next">
+    ETL and data pipelines, single-pass ML inference, batch processing, hierarchical composition.
+  </Card>
+  <Card title="Cycles & Loops" icon="arrows-spin">
+    Multi-turn conversational RAG, agentic loops, iterative refinement.
+  </Card>
+  <Card title="Conditional Routing" icon="code-branch">
+    Runtime branches based on LLM decisions or evaluation scores.
+  </Card>
+  <Card title="Human-in-the-Loop" icon="user">
+    Pause execution, get user input, resume with new context.
+  </Card>
+</CardGroup>
+
+Additional capabilities:
+- Token-by-token streaming
+- Event streaming for observability
+- Node result caching (in-memory and disk)
+
+## When to Use Hypergraph
+
+**Ideal for:**
+- Workflow automation — ETL, data pipelines, orchestration
+- AI/ML pipelines — Multi-step LLM workflows, RAG systems
+- Business processes — Multi-turn interactions, approvals, routing
+- Observable systems — Full event stream for monitoring and debugging
+- Multi-turn interactions — Pause/resume with human-in-the-loop
+
+**Less ideal for:**
+- Stateless microservices — API endpoints don't need graphs
+- Simple scripts — Single functions don't need composition
+- Real-time event streaming — Event streams, not batch workflows
+
+## Summary
+
+Hypergraph started as a better DAG framework with hierarchical composition. It evolved to support cycles, runtime conditional branches, and multi-turn interactions when DAGs proved insufficient for modern AI workflows.
+
+Rather than adopting the state-object pattern of existing agent frameworks, hypergraph kept its core insight: **automatic edge inference from matching names.** Define pure functions with clear inputs and outputs. Let the framework infer edges and validate at build time.
+
+<Note>
+  The mental model is simple: Nodes are pure functions. Outputs flow between them. DAGs execute in one pass. Cycles iterate until a termination condition. That's the whole architecture.
+</Note>

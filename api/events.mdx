@@ -1,0 +1,376 @@
+---
+title: Events
+description: Execution observability and event types
+---
+
+# Events
+
+Hypergraph emits structured events during graph execution for observability, logging, and monitoring.
+
+## Event Types
+
+All events inherit from `BaseEvent` with common fields:
+
+<ResponseField name="run_id" type="str">
+  Unique identifier for the run that produced this event
+</ResponseField>
+
+<ResponseField name="span_id" type="str">
+  Unique identifier for this event's scope (auto-generated)
+</ResponseField>
+
+<ResponseField name="parent_span_id" type="str | None">
+  Span ID of the parent scope, or None for root runs
+</ResponseField>
+
+<ResponseField name="timestamp" type="float">
+  Unix timestamp when the event was created (auto-generated)
+</ResponseField>
+
+### RunStartEvent
+
+Emitted when a graph run begins.
+
+```python
+from hypergraph.events import RunStartEvent
+```
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph being executed
+</ResponseField>
+
+<ResponseField name="workflow_id" type="str | None">
+  Optional workflow identifier for tracking related runs
+</ResponseField>
+
+<ResponseField name="is_map" type="bool">
+  Whether this run is part of a map operation
+</ResponseField>
+
+<ResponseField name="map_size" type="int | None">
+  Number of items in the map operation, if applicable
+</ResponseField>
+
+### RunEndEvent
+
+Emitted when a graph run completes.
+
+```python
+from hypergraph.events import RunEndEvent
+```
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph that was executed
+</ResponseField>
+
+<ResponseField name="status" type="RunStatus">
+  Outcome of the run (RunStatus.COMPLETED or RunStatus.FAILED)
+</ResponseField>
+
+<ResponseField name="error" type="str | None">
+  Error message if status is FAILED
+</ResponseField>
+
+<ResponseField name="duration_ms" type="float">
+  Wall-clock duration in milliseconds
+</ResponseField>
+
+### NodeStartEvent
+
+Emitted when a node begins execution.
+
+```python
+from hypergraph.events import NodeStartEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the node
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+### NodeEndEvent
+
+Emitted when a node completes successfully.
+
+```python
+from hypergraph.events import NodeEndEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the node
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+<ResponseField name="duration_ms" type="float">
+  Wall-clock duration in milliseconds
+</ResponseField>
+
+<ResponseField name="cached" type="bool">
+  Whether the result was served from cache
+</ResponseField>
+
+### CacheHitEvent
+
+Emitted when a node result is served from cache.
+
+```python
+from hypergraph.events import CacheHitEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the cached node
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+<ResponseField name="cache_key" type="str">
+  The cache key that was hit
+</ResponseField>
+
+### NodeErrorEvent
+
+Emitted when a node fails with an exception.
+
+```python
+from hypergraph.events import NodeErrorEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the node
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+<ResponseField name="error" type="str">
+  Error message
+</ResponseField>
+
+<ResponseField name="error_type" type="str">
+  Fully qualified exception type name
+</ResponseField>
+
+### RouteDecisionEvent
+
+Emitted when a routing node makes a decision.
+
+```python
+from hypergraph.events import RouteDecisionEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the routing node
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+<ResponseField name="decision" type="str | list[str]">
+  The chosen target(s)
+</ResponseField>
+
+### InterruptEvent
+
+Emitted when execution is interrupted for human-in-the-loop.
+
+```python
+from hypergraph.events import InterruptEvent
+```
+
+<ResponseField name="node_name" type="str">
+  Name of the node that triggered the interrupt
+</ResponseField>
+
+<ResponseField name="graph_name" type="str">
+  Name of the graph containing the node
+</ResponseField>
+
+<ResponseField name="workflow_id" type="str | None">
+  Optional workflow identifier
+</ResponseField>
+
+<ResponseField name="value" type="object">
+  The interrupt payload
+</ResponseField>
+
+<ResponseField name="response_param" type="str">
+  Parameter name expected for the response
+</ResponseField>
+
+### StopRequestedEvent
+
+Emitted when a stop is requested on a workflow.
+
+```python
+from hypergraph.events import StopRequestedEvent
+```
+
+<ResponseField name="workflow_id" type="str | None">
+  Optional workflow identifier
+</ResponseField>
+
+## Event Processors
+
+Event processors receive and handle execution events.
+
+### EventProcessor
+
+Base class for synchronous event processing.
+
+```python
+from hypergraph.events import EventProcessor
+
+class MyProcessor(EventProcessor):
+    def process(self, event):
+        print(f"Event: {event}")
+
+runner = SyncRunner()
+result = runner.run(
+    graph,
+    values,
+    event_processors=[MyProcessor()]
+)
+```
+
+### AsyncEventProcessor
+
+Base class for asynchronous event processing.
+
+```python
+from hypergraph.events import AsyncEventProcessor
+
+class MyAsyncProcessor(AsyncEventProcessor):
+    async def process(self, event):
+        await log_to_database(event)
+
+runner = AsyncRunner()
+result = await runner.run(
+    graph,
+    values,
+    event_processors=[MyAsyncProcessor()]
+)
+```
+
+### TypedEventProcessor
+
+Type-safe event processor with handler methods for specific event types.
+
+```python
+from hypergraph.events import TypedEventProcessor, NodeStartEvent, NodeEndEvent
+
+class MyTypedProcessor(TypedEventProcessor):
+    def on_node_start(self, event: NodeStartEvent):
+        print(f"Node {event.node_name} started")
+    
+    def on_node_end(self, event: NodeEndEvent):
+        print(f"Node {event.node_name} completed in {event.duration_ms}ms")
+
+runner = SyncRunner()
+result = runner.run(
+    graph,
+    values,
+    event_processors=[MyTypedProcessor()]
+)
+```
+
+Handler methods:
+- `on_run_start(event: RunStartEvent)`
+- `on_run_end(event: RunEndEvent)`
+- `on_node_start(event: NodeStartEvent)`
+- `on_node_end(event: NodeEndEvent)`
+- `on_cache_hit(event: CacheHitEvent)`
+- `on_node_error(event: NodeErrorEvent)`
+- `on_route_decision(event: RouteDecisionEvent)`
+- `on_interrupt(event: InterruptEvent)`
+- `on_stop_requested(event: StopRequestedEvent)`
+
+### RichProgressProcessor
+
+Built-in processor that displays a progress bar using Rich.
+
+```python
+from hypergraph.events import RichProgressProcessor
+
+processor = RichProgressProcessor(
+    show_progress=True,
+    show_tree=False,
+    console=None  # auto-creates Rich console
+)
+
+runner = AsyncRunner()
+result = await runner.run(
+    graph,
+    values,
+    event_processors=[processor]
+)
+```
+
+<ParamField path="show_progress" type="bool" default="True">
+  Whether to show progress bar
+</ParamField>
+
+<ParamField path="show_tree" type="bool" default="False">
+  Whether to show tree view of nested graph execution
+</ParamField>
+
+<ParamField path="console" type="Console | None">
+  Rich Console instance, or None to auto-create
+</ParamField>
+
+## RunStatus Enum
+
+Status values for run completion.
+
+```python
+from hypergraph.events import RunStatus
+
+RunStatus.COMPLETED  # Run finished successfully
+RunStatus.FAILED     # Run encountered an error
+```
+
+## Usage Example
+
+```python
+from hypergraph import Graph, node, AsyncRunner
+from hypergraph.events import (
+    TypedEventProcessor,
+    NodeStartEvent,
+    NodeEndEvent,
+    RunEndEvent
+)
+
+class MetricsProcessor(TypedEventProcessor):
+    def __init__(self):
+        self.node_durations = {}
+    
+    def on_node_end(self, event: NodeEndEvent):
+        self.node_durations[event.node_name] = event.duration_ms
+    
+    def on_run_end(self, event: RunEndEvent):
+        print(f"Total run time: {event.duration_ms}ms")
+        print(f"Node timings: {self.node_durations}")
+
+@node(output_name="result")
+async def process(x: int) -> int:
+    return x * 2
+
+graph = Graph([process])
+runner = AsyncRunner()
+metrics = MetricsProcessor()
+
+result = await runner.run(
+    graph,
+    {"x": 5},
+    event_processors=[metrics]
+)
+```

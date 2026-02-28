@@ -1,0 +1,349 @@
+---
+title: Graph
+description: Graph construction and configuration API
+---
+
+# Graph
+
+The Graph class defines a computation graph from nodes. It describes what nodes exist and how they connect.
+
+## Graph Class
+
+```python
+from hypergraph import Graph, node
+
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+@node(output_name="result")
+def add_one(doubled: int) -> int:
+    return doubled + 1
+
+graph = Graph([double, add_one])
+```
+
+### Constructor
+
+<ParamField path="nodes" type="list[HyperNode]" required>
+  List of HyperNode objects (FunctionNode, GraphNode, GateNode, etc.)
+</ParamField>
+
+<ParamField path="edges" type="list[tuple] | None">
+  Explicit edge declarations. Each edge is a tuple of `(source, target)` or `(source, target, values)` where source/target are node names (str) or node objects, and values is a str or list of str specifying which outputs flow on the edge. When provided, auto-inference is disabled
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Optional graph name (required for nesting via `as_node()`)
+</ParamField>
+
+<ParamField path="strict_types" type="bool" default="False">
+  If True, validate type compatibility between connected nodes at graph construction time
+</ParamField>
+
+### Properties
+
+<ResponseField name="name" type="str | None">
+  Graph name (required for nesting)
+</ResponseField>
+
+<ResponseField name="nodes" type="dict[str, HyperNode]">
+  Map of node name → node object
+</ResponseField>
+
+<ResponseField name="outputs" type="tuple[str, ...]">
+  All unique output names produced by nodes
+</ResponseField>
+
+<ResponseField name="leaf_outputs" type="tuple[str, ...]">
+  Outputs from terminal nodes (no downstream destinations)
+</ResponseField>
+
+<ResponseField name="inputs" type="InputSpec">
+  Input specification describing required/optional/entrypoint parameters (cached per instance)
+</ResponseField>
+
+<ResponseField name="has_cycles" type="bool">
+  True if graph contains cycles
+</ResponseField>
+
+<ResponseField name="has_async_nodes" type="bool">
+  True if any FunctionNode is async
+</ResponseField>
+
+<ResponseField name="has_interrupts" type="bool">
+  True if any node is an interrupt node
+</ResponseField>
+
+<ResponseField name="interrupt_nodes" type="list">
+  Ordered list of interrupt node instances
+</ResponseField>
+
+<ResponseField name="strict_types" type="bool">
+  Whether type validation is enabled
+</ResponseField>
+
+<ResponseField name="definition_hash" type="str">
+  Merkle-tree hash of graph structure (cached, includes node hashes and edges)
+</ResponseField>
+
+<ResponseField name="nx_graph" type="nx.DiGraph">
+  Underlying NetworkX directed graph
+</ResponseField>
+
+<ResponseField name="selected" type="tuple[str, ...] | None">
+  Default output selection, or None if all outputs are returned
+</ResponseField>
+
+<ResponseField name="entrypoints_config" type="tuple[str, ...] | None">
+  Configured entry points, or None if all nodes are active
+</ResponseField>
+
+<ResponseField name="controlled_by" type="dict[str, list[str]]">
+  Map of node_name → list of controlling gate names
+</ResponseField>
+
+### Methods
+
+#### bind
+
+```python
+graph = Graph([...]).bind(x=5, y=10)
+```
+
+Bind default values for inputs or outputs. Returns new Graph (immutable).
+
+<ParamField path="**values" type="Any" required>
+  Keyword arguments mapping parameter names to default values
+</ParamField>
+
+<ResponseField name="Graph">
+  New Graph instance with bound values
+</ResponseField>
+
+Accepts any graph input or output name. Bound values act as pre-filled `run()` values — overridable at run time.
+
+<Note>
+  Raises `ValueError` if key is not a valid graph input or output, or if key is an emit-only output (ordering signal).
+</Note>
+
+#### unbind
+
+```python
+graph = graph.unbind("x", "y")
+```
+
+Remove specific bindings. Returns new Graph.
+
+<ParamField path="*keys" type="str" required>
+  Parameter names to unbind
+</ParamField>
+
+<ResponseField name="Graph">
+  New Graph instance without specified bindings
+</ResponseField>
+
+#### select
+
+```python
+graph = Graph([embed, retrieve, generate]).select("answer")
+```
+
+Set default output selection. Returns new Graph (immutable).
+
+<ParamField path="*names" type="str" required>
+  Output names to include. Must be valid graph outputs
+</ParamField>
+
+<ResponseField name="Graph">
+  New Graph with default selection set
+</ResponseField>
+
+Controls which outputs are returned by `runner.run()` and which outputs are exposed when this graph is used as a nested node via `as_node()`.
+
+Also narrows `graph.inputs` to only parameters needed to produce the selected outputs. A runtime `select=` passed to `runner.run()` overrides this default.
+
+<Note>
+  Raises `ValueError` if any name is not a graph output or if names are not unique.
+</Note>
+
+#### with_entrypoint
+
+```python
+graph = Graph([root, process, output]).with_entrypoint("process")
+```
+
+Set execution entry points. Returns new Graph (immutable).
+
+<ParamField path="*node_names" type="str" required>
+  One or more node names to use as entry points
+</ParamField>
+
+<ResponseField name="Graph">
+  New Graph with entry points configured
+</ResponseField>
+
+Entry points define where execution enters the graph. Upstream nodes are excluded — their outputs become direct user inputs.
+
+Works for both DAGs and cycles:
+- DAG: entry point determines where computation starts
+- Cycle: entry point determines cycle bootstrap requirements
+
+Chainable: `graph.with_entrypoint("A").with_entrypoint("B")`
+
+<Note>
+  Raises `GraphConfigError` if node doesn't exist or is a gate node.
+</Note>
+
+#### add_nodes
+
+```python
+graph = graph.add_nodes(new_node_1, new_node_2)
+```
+
+Add nodes to graph. Returns new Graph (immutable).
+
+<ParamField path="*nodes" type="HyperNode" required>
+  Nodes to add
+</ParamField>
+
+<ResponseField name="Graph">
+  New Graph with added nodes
+</ResponseField>
+
+Equivalent to rebuilding the graph with the combined node list, then replaying bind/select.
+
+<Note>
+  Raises `GraphConfigError` if graph was constructed with explicit edges. Raises `ValueError` if existing bindings become invalid after adding nodes.
+</Note>
+
+#### as_node
+
+```python
+inner = Graph([...], name="preprocess")
+outer = Graph([inner.as_node(), ...])
+```
+
+Wrap graph as node for composition. Returns new GraphNode.
+
+<ParamField path="name" type="str | None">
+  Optional node name. If not provided, uses `graph.name`
+</ParamField>
+
+<ResponseField name="GraphNode">
+  GraphNode wrapping this graph
+</ResponseField>
+
+<Note>
+  Raises `ValueError` if name is None and `graph.name` is None.
+</Note>
+
+#### visualize
+
+```python
+graph.visualize(depth=1, theme="dark", show_types=True)
+```
+
+Create an interactive visualization of this graph using React Flow with Kiwi constraint-based layout.
+
+<ParamField path="depth" type="int" default="0">
+  How many levels of nested graphs to expand
+</ParamField>
+
+<ParamField path="theme" type="str" default="auto">
+  "dark", "light", or "auto" to detect from environment
+</ParamField>
+
+<ParamField path="show_types" type="bool" default="False">
+  Whether to show type annotations on nodes
+</ParamField>
+
+<ParamField path="separate_outputs" type="bool" default="False">
+  Whether to render outputs as separate DATA nodes
+</ParamField>
+
+<ParamField path="filepath" type="str | None">
+  Path to save HTML file (default: None, display in notebook)
+</ParamField>
+
+<ResponseField name="ScrollablePipelineWidget | None">
+  Widget if output is None (displays in notebook), otherwise None (saves to file)
+</ResponseField>
+
+#### to_mermaid
+
+```python
+diagram = graph.to_mermaid(direction="LR")
+print(diagram)  # raw Mermaid source
+```
+
+Generate a Mermaid flowchart diagram for this graph.
+
+<ParamField path="depth" type="int" default="0">
+  How many levels of nested graphs to expand
+</ParamField>
+
+<ParamField path="show_types" type="bool" default="False">
+  Whether to show type annotations in labels
+</ParamField>
+
+<ParamField path="separate_outputs" type="bool" default="False">
+  Whether to render outputs as separate DATA nodes
+</ParamField>
+
+<ParamField path="direction" type="str" default="TD">
+  Flowchart direction — "TD", "TB", "LR", "RL", "BT"
+</ParamField>
+
+<ParamField path="colors" type="dict[str, dict[str, str]] | None">
+  Custom color overrides per node class, e.g. `{"function": {"fill": "#fff", "stroke": "#000"}}`
+</ParamField>
+
+<ResponseField name="MermaidDiagram">
+  Diagram object that auto-renders in notebooks and converts to raw Mermaid source via `str()` or `print()`
+</ResponseField>
+
+#### to_flat_graph
+
+```python
+flat = graph.to_flat_graph()
+```
+
+Create a flattened NetworkX graph with all nested nodes.
+
+<ResponseField name="nx.DiGraph">
+  New DiGraph where all nodes (root + nested) are in one graph with hierarchical node IDs
+</ResponseField>
+
+Returns a new DiGraph where:
+- All nodes (root + nested) are in one graph
+- Node attributes include `parent` for hierarchy
+- Node IDs are hierarchical to prevent collisions (e.g., "pipeline1/process")
+- Edges include both root-level and nested edges
+- Graph attributes include `input_spec` and `output_to_sources`
+
+#### iter_nodes
+
+```python
+for node in graph.iter_nodes():
+    print(node.name)
+```
+
+Iterate over all nodes without copying the internal dict.
+
+<ResponseField name="Iterable[HyperNode]">
+  Iterator over node objects
+</ResponseField>
+
+#### debug_viz
+
+```python
+debugger = graph.debug_viz()
+info = debugger.trace_node("my_node")
+```
+
+Get a debugger for this graph's visualization.
+
+<ResponseField name="VizDebugger">
+  VizDebugger instance for tracing nodes/edges and finding issues
+</ResponseField>

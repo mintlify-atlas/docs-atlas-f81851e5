@@ -1,0 +1,263 @@
+---
+title: 'Roadmap'
+description: 'Current status and future plans for Hypergraph'
+icon: 'map'
+---
+
+## Current Status: Alpha
+
+Core features are working and stable. API may still change before 1.0.
+
+<Note>
+  Hypergraph is production-ready for early adopters. The API is mostly stable, but we reserve the right to make breaking changes based on feedback before the 1.0 release.
+</Note>
+
+## What's Working Now
+
+### Core Primitives
+
+<CardGroup cols={2}>
+  <Card title="@node Decorator" icon="at">
+    Wrap functions (sync, async, generators) with automatic metadata
+  </Card>
+  <Card title="Graph Construction" icon="diagram-project">
+    Automatic edge inference from matching names
+  </Card>
+  <Card title="InputSpec" icon="list-check">
+    Categorize inputs as required, optional, bound, or internal
+  </Card>
+  <Card title="Rename API" icon="pen">
+    `.with_inputs()`, `.with_outputs()`, `.with_name()` for adaptation
+  </Card>
+</CardGroup>
+
+**Build-time validation** catches errors at graph construction with helpful messages.
+
+### Composition & Scaling
+
+<CardGroup cols={2}>
+  <Card title="Hierarchical Composition" icon="layer-group">
+    Nest graphs as nodes with `.as_node()`
+  </Card>
+  <Card title="Batch Processing" icon="arrows-split-up-and-left">
+    Fan out over collections with `.map_over()`
+  </Card>
+</CardGroup>
+
+### Execution
+
+<CardGroup cols={2}>
+  <Card title="SyncRunner" icon="play">
+    Sequential execution for simple workflows
+  </Card>
+  <Card title="AsyncRunner" icon="bolt">
+    Concurrent execution with `max_concurrency` control
+  </Card>
+  <Card title="Batch Map" icon="grid">
+    `runner.map()` with zip and product modes
+  </Card>
+</CardGroup>
+
+### Control Flow
+
+<CardGroup cols={2}>
+  <Card title="@route Decorator" icon="code-branch">
+    Conditional routing with `END` sentinel
+  </Card>
+  <Card title="@ifelse Decorator" icon="split">
+    Binary boolean routing
+  </Card>
+  <Card title="Cyclic Graphs" icon="arrows-spin">
+    Agentic loops and multi-turn workflows
+  </Card>
+</CardGroup>
+
+### Human-in-the-Loop
+
+<CardGroup cols={2}>
+  <Card title="InterruptNode" icon="pause">
+    Pause execution and wait for user input
+  </Card>
+  <Card title="Resume" icon="play">
+    Continue with user-provided data
+  </Card>
+  <Card title="Auto-Resolve" icon="wand-magic-sparkles">
+    Handler functions for automated input resolution
+  </Card>
+</CardGroup>
+
+### Caching
+
+<CardGroup cols={2}>
+  <Card title="Opt-In Caching" icon="floppy-disk">
+    `@node(cache=True)` per-node caching
+  </Card>
+  <Card title="Multiple Backends" icon="database">
+    `InMemoryCache` (LRU) and `DiskCache` (persistent)
+  </Card>
+  <Card title="Custom Backends" icon="puzzle-piece">
+    Implement `CacheBackend` protocol
+  </Card>
+  <Card title="Auto-Invalidation" icon="rotate">
+    Cache invalidates on code changes via `definition_hash`
+  </Card>
+</CardGroup>
+
+### Events & Observability
+
+<CardGroup cols={2}>
+  <Card title="Event System" icon="eye">
+    `EventProcessor`, `AsyncEventProcessor`, `TypedEventProcessor`
+  </Card>
+  <Card title="Rich Progress" icon="spinner">
+    `RichProgressProcessor` with hierarchical bars
+  </Card>
+</CardGroup>
+
+**Event types:** `RunStartEvent`, `RunEndEvent`, `NodeStartEvent`, `NodeEndEvent`, `NodeErrorEvent`, `RouteDecisionEvent`, `InterruptEvent`, `CacheHitEvent`, `StopRequestedEvent`
+
+### Visualization
+
+<CardGroup cols={2}>
+  <Card title="Interactive Rendering" icon="eye">
+    `graph.visualize()` for notebooks and standalone HTML
+  </Card>
+  <Card title="Theme Support" icon="palette">
+    Dark, light, and auto themes
+  </Card>
+  <Card title="Expandable Hierarchy" icon="folder-tree">
+    Expand/collapse nested graphs interactively
+  </Card>
+  <Card title="Type Annotations" icon="code">
+    `show_types=True` for debugging
+  </Card>
+</CardGroup>
+
+**Built-in React Flow** — constraint-based layout, works offline, no CDN dependencies.
+
+### Validation
+
+<CardGroup cols={2}>
+  <Card title="Strict Types" icon="shield-check">
+    `strict_types=True` for type checking at construction
+  </Card>
+  <Card title="Helpful Errors" icon="message-exclamation">
+    Type mismatch and route target validation with clear messages
+  </Card>
+</CardGroup>
+
+## Coming Soon
+
+### Checkpointing and Durability
+
+<CardGroup cols={2}>
+  <Card title="State Snapshots" icon="camera">
+    Save graph state after each node execution
+  </Card>
+  <Card title="Resume from Checkpoint" icon="play">
+    Continue from last successful node after failures
+  </Card>
+  <Card title="Storage Backends" icon="database">
+    Local file system, Redis, S3 support
+  </Card>
+</CardGroup>
+
+<Tip>
+  Checkpointing will enable long-running workflows to survive crashes and restarts, with minimal performance overhead.
+</Tip>
+
+### Observability Integrations
+
+<CardGroup cols={2}>
+  <Card title="OpenTelemetry" icon="chart-network">
+    Integration with tracing systems
+  </Card>
+  <Card title="Structured Logging" icon="file-lines">
+    Per-node execution logs
+  </Card>
+  <Card title="Performance Metrics" icon="gauge-high">
+    Track latency, token usage, and resource consumption
+  </Card>
+</CardGroup>
+
+## Future Considerations
+
+### Distributed Execution
+
+<CardGroup cols={2}>
+  <Card title="Daft Integration" icon="server">
+    Distributed processing for large-scale workflows
+  </Card>
+  <Card title="Parallel Execution" icon="arrows-split-up-and-left">
+    Execute across multiple machines
+  </Card>
+  <Card title="Auto Partitioning" icon="scissors">
+    Automatic data partitioning for scale
+  </Card>
+</CardGroup>
+
+<Note>
+  Distributed execution is a future consideration. The current focus is on making single-machine execution rock-solid.
+</Note>
+
+### Execution Trace Visualization
+
+<CardGroup cols={2}>
+  <Card title="Trace Overlay" icon="layer-group">
+    Overlay execution traces on graph visualization
+  </Card>
+  <Card title="Timing Display" icon="clock">
+    Show per-node timing and bottlenecks
+  </Card>
+  <Card title="Value Inspection" icon="magnifying-glass">
+    Inspect intermediate values at each node
+  </Card>
+  <Card title="Error Highlighting" icon="triangle-exclamation">
+    Visual indication of failed nodes
+  </Card>
+</CardGroup>
+
+### Persistence
+
+- State snapshots for long-running workflows
+- Version control for graph definitions
+- Migration utilities for schema changes
+
+## Non-Goals
+
+Things we're explicitly **not** building:
+
+<CardGroup cols={2}>
+  <Card title="Infrastructure Orchestration" icon="calendar">
+    Use Prefect, Airflow, or Temporal for job scheduling
+  </Card>
+  <Card title="Model Serving" icon="server">
+    Use dedicated serving infrastructure like Ray Serve
+  </Card>
+  <Card title="Data Storage" icon="database">
+    Hypergraph orchestrates, doesn't store
+  </Card>
+  <Card title="UI Framework" icon="window">
+    We're a library, not a platform
+  </Card>
+</CardGroup>
+
+<Tip>
+  Hypergraph focuses on graph execution and composition. For infrastructure concerns like scheduling, monitoring, and deployment, integrate with existing tools.
+</Tip>
+
+## Contributing
+
+See the [GitHub repository](https://github.com/your-org/hypergraph) for contribution guidelines.
+
+**Areas where help is welcome:**
+
+- Additional runner implementations
+- Storage backend integrations
+- Visualization tools and enhancements
+- Documentation improvements
+- Real-world example contributions
+
+<Note>
+  Early contributors have significant influence on the project's direction. Join us in shaping the future of workflow orchestration.
+</Note>

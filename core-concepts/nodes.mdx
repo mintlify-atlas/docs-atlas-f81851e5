@@ -1,0 +1,530 @@
+---
+title: Nodes
+description: Wrap functions as graph components with named inputs and outputs
+---
+
+## Overview
+
+A **node** is a function wrapped as a graph component. Nodes are the building blocks of Hypergraph - they define the computation units that get connected into graphs.
+
+### Key Properties
+
+- **Inputs** - Parameter names from the function signature
+- **Outputs** - Named values produced by the function (specified via `output_name`)
+- **Name** - Identifier for the node (defaults to function name)
+- **Execution Mode** - Auto-detected: sync, async, generator, or async generator
+
+## Creating Nodes
+
+### The @node Decorator
+
+The `@node` decorator wraps a Python function as a `FunctionNode`:
+
+```python
+from hypergraph import node
+
+@node(output_name="result")
+def add(x: int, y: int) -> int:
+    return x + y
+
+print(add.name)      # "add"
+print(add.inputs)    # ("x", "y")
+print(add.outputs)   # ("result",)
+```
+
+<Note>
+The decorator can be used with or without parentheses:
+- `@node` - Side-effect only node (no outputs)
+- `@node(output_name="result")` - Node with output
+</Note>
+
+### Node Types
+
+Hypergraph provides several node types:
+
+<CardGroup cols={2}>
+  <Card title="FunctionNode" icon="function">
+    Wraps Python functions (sync/async, regular/generator)
+  </Card>
+  <Card title="GraphNode" icon="diagram-project">
+    Wraps entire graphs for hierarchical composition
+  </Card>
+  <Card title="GateNode" icon="code-branch">
+    Controls routing (@ifelse, @route decorators)
+  </Card>
+  <Card title="InterruptNode" icon="hand">
+    Pauses execution for human-in-the-loop
+  </Card>
+</CardGroup>
+
+This guide focuses on **FunctionNode** - the most common type.
+
+## FunctionNode API
+
+### Constructor
+
+```python
+FunctionNode(
+    source: Callable | FunctionNode,
+    name: str | None = None,
+    output_name: str | tuple[str, ...] | None = None,
+    *,
+    rename_inputs: dict[str, str] | None = None,
+    cache: bool = False,
+    hide: bool = False,
+    emit: str | tuple[str, ...] | None = None,
+    wait_for: str | tuple[str, ...] | None = None,
+)
+```
+
+<ParamField path="source" type="Callable | FunctionNode" required>
+  Function to wrap, or existing FunctionNode (extracts `.func`)
+</ParamField>
+
+<ParamField path="name" type="str">
+  Public node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="output_name" type="str | tuple[str, ...]">
+  Name(s) for output value(s). If `None`, the node produces no outputs (side-effect only).
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str]">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache results based on input hash
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...]">
+  Ordering-only output name(s). Auto-produced when node runs. Used for execution ordering without data flow.
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...]">
+  Ordering-only input name(s). Node won't run until these values exist. Used for execution ordering without data dependencies.
+</ParamField>
+
+### Properties
+
+<CodeGroup>
+```python Core Properties
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+double.name         # "double" - node identifier
+double.inputs       # ("x",) - parameter names
+double.outputs      # ("doubled",) - output names
+double.func         # <function double> - wrapped function
+```
+
+```python Execution Mode
+double.is_async     # False - not async def
+double.is_generator # False - not a generator
+
+@node(output_name="data")
+async def fetch(url: str) -> dict:
+    return await httpx.get(url).json()
+
+fetch.is_async      # True - async def
+fetch.is_generator  # False - returns single value
+
+from typing import Iterator
+
+@node(output_name="chunks")
+def stream(text: str) -> Iterator[str]:
+    for i in range(0, len(text), 100):
+        yield text[i:i+100]
+
+stream.is_async     # False - regular function
+stream.is_generator # True - yields values
+```
+
+```python Caching & Hashing
+@node(output_name="result", cache=True)
+def expensive(x: int) -> int:
+    return x ** 100
+
+expensive.cache           # True
+expensive.definition_hash # SHA256 of function source
+```
+</CodeGroup>
+
+## Output Modes
+
+### Single Output
+
+Most common - function returns one value:
+
+```python
+@node(output_name="result")
+def process(text: str) -> str:
+    return text.upper()
+
+print(process.outputs)  # ("result",)
+```
+
+### Multiple Outputs
+
+Return a tuple to produce multiple outputs:
+
+```python
+@node(output_name=("mean", "std"))
+def statistics(data: list[float]) -> tuple[float, float]:
+    mean = sum(data) / len(data)
+    std = (sum((x - mean) ** 2 for x in data) / len(data)) ** 0.5
+    return mean, std
+
+print(statistics.outputs)  # ("mean", "std")
+```
+
+<Warning>
+The return value must be a tuple matching the number of output names.
+</Warning>
+
+### Side-Effect Only
+
+Omit `output_name` for nodes that don't produce outputs:
+
+```python
+@node  # No output_name
+def log(message: str) -> None:
+    print(f"[LOG] {message}")
+
+print(log.outputs)  # () - empty tuple
+```
+
+<Tip>
+If you forget `output_name` on a function with a return annotation, Hypergraph warns you:
+```
+UserWarning: Function 'fetch_data' has return type '<class 'dict'>' but no output_name.
+If you want to capture the return value, use @node(output_name='...').
+```
+</Tip>
+
+## Execution Modes
+
+Hypergraph auto-detects execution mode from the function signature:
+
+### 1. Synchronous Function (Default)
+
+```python
+@node(output_name="result")
+def sync_process(x: int) -> int:
+    return x * 2
+
+print(sync_process.is_async)      # False
+print(sync_process.is_generator)  # False
+```
+
+### 2. Asynchronous Function
+
+```python
+import httpx
+
+@node(output_name="data")
+async def fetch(url: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        return (await client.get(url)).json()
+
+print(fetch.is_async)      # True
+print(fetch.is_generator)  # False
+```
+
+<Note>
+Async nodes require `AsyncRunner` to execute.
+</Note>
+
+### 3. Synchronous Generator
+
+```python
+from typing import Iterator
+
+@node(output_name="chunks")
+def chunk_text(text: str, size: int = 100) -> Iterator[str]:
+    for i in range(0, len(text), size):
+        yield text[i:i+size]
+
+print(chunk_text.is_async)      # False
+print(chunk_text.is_generator)  # True
+```
+
+### 4. Asynchronous Generator
+
+```python
+from typing import AsyncIterator
+
+@node(output_name="tokens")
+async def stream_llm(prompt: str) -> AsyncIterator[str]:
+    stream = openai.responses.create(
+        model="gpt-4",
+        input=prompt,
+        stream=True,
+    )
+    async for part in stream:
+        if part.output_text:
+            yield part.output_text
+
+print(stream_llm.is_async)      # True
+print(stream_llm.is_generator)  # True
+```
+
+<Tip>
+Generators are useful for streaming responses or processing large datasets in chunks.
+</Tip>
+
+## Renaming Nodes
+
+Nodes are immutable - rename methods return new instances:
+
+### Rename the Node
+
+```python
+@node(output_name="result")
+def process(text: str) -> str:
+    return text.upper()
+
+preprocessor = process.with_name("string_preprocessor")
+print(preprocessor.name)  # "string_preprocessor"
+print(process.name)       # "process" - original unchanged
+```
+
+### Rename Inputs
+
+```python
+adapted = process.with_inputs(text="raw_input")
+print(adapted.inputs)   # ("raw_input",)
+print(process.inputs)   # ("text",) - original unchanged
+```
+
+### Rename Outputs
+
+```python
+adapted = process.with_outputs(result="processed")
+print(adapted.outputs)  # ("processed",)
+print(process.outputs)  # ("result",) - original unchanged
+```
+
+### Chain Renames
+
+All rename methods return new instances, so you can chain them:
+
+```python
+custom = (
+    process
+    .with_name("preprocessor")
+    .with_inputs(text="raw")
+    .with_outputs(result="cleaned")
+)
+
+print(custom.name)     # "preprocessor"
+print(custom.inputs)   # ("raw",)
+print(custom.outputs)  # ("cleaned",)
+```
+
+<Note>
+Why rename? To adapt nodes for automatic edge inference. If node A produces "embedding" and node B needs "query_embedding", rename one to match.
+</Note>
+
+## Calling Nodes Directly
+
+Nodes are callable - they execute the wrapped function:
+
+```python
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+# Call the node directly
+result = double(5)
+print(result)  # 10
+
+# Access the underlying function
+result = double.func(5)
+print(result)  # 10
+```
+
+<Tip>
+Direct calls bypass the graph - useful for testing individual nodes.
+</Tip>
+
+## Type Annotations
+
+Hypergraph supports type introspection for validation:
+
+```python
+from typing import get_type_hints
+
+@node(output_name="result")
+def add(x: int, y: int) -> float:
+    return float(x + y)
+
+# Input types from function signature
+params = inspect.signature(add.func).parameters
+print(params["x"].annotation)  # <class 'int'>
+
+# Output types from output_annotation property
+print(add.output_annotation)  # {'result': <class 'float'>}
+print(add.get_output_type("result"))  # <class 'float'>
+```
+
+### Multiple Output Types
+
+For multiple outputs, types are extracted from tuple annotations:
+
+```python
+@node(output_name=("a", "b"))
+def split(x: str) -> tuple[int, str]:
+    return (len(x), x.upper())
+
+print(split.output_annotation)
+# {'a': <class 'int'>, 'b': <class 'str'>}
+```
+
+<Note>
+Type annotations enable `strict_types=True` validation at graph construction time.
+</Note>
+
+## Reconfiguring Nodes
+
+Pass a `FunctionNode` to `FunctionNode()` to create a fresh node with new configuration:
+
+```python
+@node(output_name="original_output", cache=True)
+def process(x: int) -> int:
+    return x * 2
+
+# Create new node with different config (extracts just the function)
+reconfigured = FunctionNode(
+    process,  # Pass the FunctionNode directly
+    name="new_name",
+    output_name="new_output",
+    cache=False,
+)
+
+print(reconfigured.name)     # "new_name"
+print(reconfigured.outputs)  # ("new_output",)
+print(reconfigured.cache)    # False
+
+# Original unchanged
+print(process.name)     # "process"
+print(process.outputs)  # ("original_output",)
+print(process.cache)    # True
+
+# The underlying function is the same
+print(reconfigured.func is process.func)  # True
+```
+
+<Tip>
+Useful when you want to completely reconfigure a node rather than just rename parts of it.
+</Tip>
+
+## Ordering Dependencies
+
+### wait_for - Ordering Inputs
+
+Force execution order without data dependencies:
+
+```python
+@node(output_name="data", emit="data_fetched")
+def fetch_data(url: str) -> dict:
+    return {"result": "data"}
+
+@node(output_name="metrics", wait_for="data_fetched")
+def log_metrics() -> dict:
+    # Runs after fetch_data, even without using its data
+    return {"latency_ms": 100}
+```
+
+### emit - Ordering Outputs
+
+Produce ordering signals without data:
+
+```python
+@node(emit="setup_complete")
+def setup_environment() -> None:
+    # Initialize resources
+    pass
+
+@node(output_name="result", wait_for="setup_complete")
+def run_task(config: dict) -> str:
+    # Runs after setup_environment completes
+    return "success"
+```
+
+<Note>
+`emit` and `wait_for` create edges in the graph, but don't carry data values. The emitted signal is a sentinel object, not user data.
+</Note>
+
+## Common Patterns
+
+### Creating Variants
+
+Reuse a function in different contexts:
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return model.embed(text)
+
+# For search pipeline
+query_embed = embed.with_inputs(text="query").with_name("query_embed")
+
+# For document pipeline
+doc_embed = embed.with_inputs(text="document").with_name("doc_embed")
+
+print(query_embed.inputs)  # ("query",)
+print(doc_embed.inputs)    # ("document",)
+```
+
+### Default Values
+
+Function defaults work as expected:
+
+```python
+@node(output_name="chunks")
+def chunk_text(text: str, size: int = 100) -> list[str]:
+    return [text[i:i+size] for i in range(0, len(text), size)]
+
+print(chunk_text.has_default_for("size"))  # True
+print(chunk_text.get_default_for("size"))  # 100
+```
+
+### Caching Expensive Computations
+
+```python
+@node(output_name="embedding", cache=True)
+def embed(text: str) -> list[float]:
+    # Expensive embedding computation
+    return model.embed(text)
+
+# First call computes and caches
+# Subsequent calls with same input return cached result
+```
+
+<Tip>
+Cache keys are based on:
+1. Node's `definition_hash` (function source code)
+2. Input values (hashed)
+
+Changing the function invalidates the cache automatically.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Graphs" icon="diagram-project" href="/core-concepts/graphs">
+    Connect nodes into computation graphs
+  </Card>
+  <Card title="Runners" icon="play" href="/core-concepts/runners">
+    Execute graphs with SyncRunner and AsyncRunner
+  </Card>
+  <Card title="Execution Modes" icon="bolt" href="/core-concepts/execution-modes">
+    Deep dive into sync, async, and generator modes
+  </Card>
+</CardGroup>

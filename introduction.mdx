@@ -1,0 +1,299 @@
+---
+title: "Hypergraph: One Framework for DAGs and Agents"
+description: "Unified Python workflow orchestration from batch pipelines to multi-turn AI agents. Pure functions, automatic wiring, and natural hierarchy."
+---
+
+<div className="hero">
+  <h1>One Framework for the Full Spectrum</h1>
+  <p className="subtitle">
+    From batch data pipelines to multi-turn AI agents. One elegant API that spans the entire workflow spectrum.
+  </p>
+</div>
+
+## Why Hypergraph?
+
+DAG frameworks can't handle agents. Agent frameworks have too much ceremony. You shouldn't need different tools for data pipelines and agentic AI.
+
+Hypergraph spans the full spectrum — from batch data pipelines to multi-turn AI agents — with the same minimal API.
+
+```python
+from hypergraph import Graph, node, SyncRunner
+
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return model.embed(text)
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+@node(output_name="answer")
+def generate(docs: list[str], query: str) -> str:
+    return llm.generate(docs, query)
+
+# Edges inferred from names - no wiring needed
+graph = Graph(nodes=[embed, retrieve, generate])
+
+# Run the graph
+runner = SyncRunner()
+result = runner.run(graph, {"text": "RAG tutorial", "query": "What is RAG?"})
+print(result["answer"])
+```
+
+**`embed` produces `embedding`. `retrieve` takes `embedding`. Connected automatically.**
+
+<CardGroup cols={2}>
+  <Card title="Get Started in 5 Minutes" icon="rocket" href="/quickstart">
+    Install hypergraph and run your first workflow. From zero to working graph in minutes.
+  </Card>
+  
+  <Card title="Compare with Other Frameworks" icon="code-compare" href="/comparison">
+    See how hypergraph compares to LangGraph, Hamilton, Prefect, and Pipefunc.
+  </Card>
+  
+  <Card title="When to Use Hypergraph" icon="compass" href="/when-to-use">
+    Understand if hypergraph is the right tool for your project.
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/core-concepts/nodes">
+    Deep dive into nodes, graphs, runners, and routing patterns.
+  </Card>
+</CardGroup>
+
+## Key Differentiators
+
+### 1. One Framework to Master
+
+Learn one tool that works for everything. The same patterns work across the entire spectrum:
+
+- **ETL pipelines?** Same `@node` decorator, same `Graph`, same runner
+- **Agentic loops?** Add `@route` and `END`, same everything else  
+- **Multi-agent orchestration?** Nest graphs with `.as_node()`, same mental model
+
+### 2. Natural Hierarchy
+
+Real AI workflows nest DAGs inside cycles and cycles inside DAGs:
+
+<CodeGroup>
+```python Multi-turn RAG
+# The chat is a cyclic graph
+chat = Graph([retrieve, generate, accumulate, should_continue])
+
+# Wrap it as a node for evaluation
+eval_pipeline = Graph([
+    load_test_cases,
+    chat.as_node(),  # Cyclic graph as a single node
+    score_responses,
+    aggregate_metrics,
+])
+```
+
+```python Prompt Optimization
+# Inner loop: Run workflow, evaluate results
+workflow = Graph([process, evaluate])
+
+# Outer loop: Receive feedback, improve prompts, repeat
+optimization = Graph([
+    workflow.as_node(),
+    analyze_results,
+    improve_prompts,
+    should_continue,  # Loop back or finish
+])
+```
+</CodeGroup>
+
+Hypergraph's hierarchical composition makes this explicit and clean.
+
+### 3. Automatic Edge Inference
+
+No manual wiring. Name your outputs and inputs consistently — edges are inferred:
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return model.embed(text)
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+# Edges inferred: embed → retrieve (via "embedding")
+graph = Graph([embed, retrieve])
+```
+
+### 4. Pure, Testable Functions
+
+Your functions are just functions. Test them directly:
+
+```python
+# Test without the framework — no setup, no mocking
+def test_embed():
+    result = embed.func("hello world")
+    assert len(result) == 768
+```
+
+### 5. Build-Time Validation
+
+Catch errors when you build the graph, not at 2am in production:
+
+<Warning>
+  Typos, missing connections, type mismatches — caught at construction time.
+</Warning>
+
+```python
+@route(targets=["step_a", "step_b", END])
+def decide(x: int) -> str:
+    return "step_c"  # Typo!
+
+graph = Graph([decide, step_a, step_b])
+# GraphValidationError: Route target 'step_c' not found.
+# Valid targets: ['step_a', 'step_b', 'END']
+# Did you mean 'step_a'?
+```
+
+### 6. Think Singular, Scale with Map
+
+Write logic for one item. Scale to many with `.map()`:
+
+```python
+# Write for ONE document
+@node(output_name="features")
+def extract(document: str) -> dict:
+    return analyze(document)
+
+# Scale to 1000 documents
+results = runner.map(graph, {"document": documents}, map_over="document")
+```
+
+The framework handles fan-out, parallelism, and caching.
+
+## The Full Spectrum
+
+<div className="spectrum">
+  <table>
+    <thead>
+      <tr>
+        <th>Pattern</th>
+        <th>Example Use Cases</th>
+        <th>Hypergraph Features</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Batch Pipelines</strong></td>
+        <td>ETL, ML inference, data transformations</td>
+        <td><code>@node</code>, <code>Graph</code>, automatic edges</td>
+      </tr>
+      <tr>
+        <td><strong>Branching</strong></td>
+        <td>Conditional routing, document classification</td>
+        <td><code>@ifelse</code>, <code>@route</code></td>
+      </tr>
+      <tr>
+        <td><strong>Agentic Loops</strong></td>
+        <td>Multi-turn chat, iterative refinement</td>
+        <td><code>@route</code>, <code>END</code>, cycles</td>
+      </tr>
+      <tr>
+        <td><strong>Hierarchical</strong></td>
+        <td>Nested workflows, evaluation harnesses</td>
+        <td><code>.as_node()</code>, graph composition</td>
+      </tr>
+      <tr>
+        <td><strong>Multi-Agent</strong></td>
+        <td>Agent teams, orchestration</td>
+        <td>All of the above combined</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+## Examples by Complexity
+
+<Steps>
+  <Step title="Simple Pipeline">
+    Linear data flow, automatic edge inference.
+    
+    ```python
+    graph = Graph([load, transform, save])
+    ```
+  </Step>
+  
+  <Step title="Add Branching">
+    Route execution based on data.
+    
+    ```python
+    @ifelse(when_true="process", when_false=END)
+    def should_process(is_valid: bool) -> bool:
+        return is_valid
+    
+    graph = Graph([validate, should_process, process])
+    ```
+  </Step>
+  
+  <Step title="Add Loops">
+    Multi-turn conversations, iterative refinement.
+    
+    ```python
+    @route(targets=["generate", END])
+    def should_continue(messages: list) -> str:
+        if len(messages) > 10:
+            return END
+        return "generate"
+    
+    graph = Graph([generate, accumulate, should_continue])
+    ```
+  </Step>
+  
+  <Step title="Add Hierarchy">
+    Nest graphs for reuse and composition.
+    
+    ```python
+    rag = Graph([embed, retrieve, generate], name="rag")
+    
+    workflow = Graph([
+        validate_input,
+        rag.as_node(),  # Nested graph
+        format_output,
+    ])
+    ```
+  </Step>
+</Steps>
+
+## Beyond AI/ML
+
+<Note>
+  While the examples focus on AI/ML use cases, hypergraph is a general-purpose workflow framework. It has no dependencies on LLMs, vector databases, or any AI tooling. Use it for any multi-step workflow: ETL pipelines, business process automation, testing harnesses, or anything else that benefits from graph-based orchestration.
+</Note>
+
+## Installation
+
+```bash
+uv add git+https://github.com/gilad-rubin/hypergraph.git
+# or
+pip install git+https://github.com/gilad-rubin/hypergraph.git
+```
+
+<Warning>
+  **Alpha**: API may change between releases. Core features are stable — nodes, graphs, runners, routing, and cyclic graphs.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="play" href="/quickstart">
+    Get running in 5 minutes with a complete example.
+  </Card>
+  
+  <Card title="Comparison" icon="balance-scale" href="/comparison">
+    See how hypergraph compares to LangGraph, Hamilton, and others.
+  </Card>
+  
+  <Card title="When to Use" icon="lightbulb" href="/when-to-use">
+    Decide if hypergraph is right for your project.
+  </Card>
+  
+  <Card title="Core Concepts" icon="graduation-cap" href="/core-concepts/nodes">
+    Master nodes, graphs, and runners.
+  </Card>
+</CardGroup>

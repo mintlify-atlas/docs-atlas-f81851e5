@@ -1,0 +1,549 @@
+---
+title: "Framework Comparison"
+description: "How hypergraph compares to LangGraph, Hamilton, Prefect, Pipefunc, and Pydantic-Graph. No state schemas, automatic wiring, unified model."
+---
+
+Hypergraph takes the best from both DAG frameworks and agent frameworks:
+
+- **From DAG frameworks** (Hamilton, Pipefunc): Pure functions, automatic edge inference, no state schema
+- **From agent frameworks** (LangGraph, Pydantic-Graph): Cycles, routing, human-in-the-loop
+
+## Quick Comparison
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>hypergraph</th>
+      <th>LangGraph</th>
+      <th>Hamilton</th>
+      <th>Pipefunc</th>
+      <th>Pydantic-Graph</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>DAG Pipelines</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>✓</td>
+    </tr>
+    <tr>
+      <td>Agentic Loops</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>—</td>
+      <td>—</td>
+      <td>✓</td>
+    </tr>
+    <tr>
+      <td>State Schema</td>
+      <td>None</td>
+      <td>TypedDict</td>
+      <td>None</td>
+      <td>None</td>
+      <td>Pydantic</td>
+    </tr>
+    <tr>
+      <td>Edge Inference</td>
+      <td>Automatic</td>
+      <td>Manual</td>
+      <td>Automatic</td>
+      <td>Automatic</td>
+      <td>Manual</td>
+    </tr>
+    <tr>
+      <td>Hierarchical</td>
+      <td>First-class</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>✓</td>
+    </tr>
+    <tr>
+      <td>Human-in-the-Loop</td>
+      <td>✓</td>
+      <td>✓</td>
+      <td>—</td>
+      <td>—</td>
+      <td>✓</td>
+    </tr>
+  </tbody>
+</table>
+
+## The Design Space
+
+### DAG-First Frameworks
+
+**Hamilton** and **Pipefunc** excel at data pipelines. Functions define nodes, edges are inferred from parameter names. Clean, testable, minimal boilerplate.
+
+<Warning>
+  But they can't express cycles. Multi-turn conversations, agentic workflows, iterative refinement — none of these are possible when the framework fundamentally assumes DAG execution.
+</Warning>
+
+### Agent-First Frameworks
+
+**LangGraph** and **Pydantic-Graph** were built for agents. They support cycles, conditional routing, and human-in-the-loop patterns.
+
+<Warning>
+  But they require explicit state schemas. Every node reads from and writes to a shared state object. Functions become framework-coupled. Testing requires mocking state.
+</Warning>
+
+### Hypergraph: The Middle Path
+
+Hypergraph takes the best of both:
+
+<CardGroup cols={2}>
+  <Card title="From DAG Frameworks" icon="diagram-project">
+    - Pure functions (testable without framework)
+    - Automatic edge inference (no manual wiring)
+    - No state schema (just function parameters)
+  </Card>
+  
+  <Card title="From Agent Frameworks" icon="robot">
+    - Cycles for multi-turn workflows
+    - Conditional routing (@route, @ifelse)
+    - Human-in-the-loop (@interrupt)
+  </Card>
+</CardGroup>
+
+## Code Comparison: RAG Pipeline
+
+The same RAG pipeline in each framework.
+
+<CodeGroup>
+```python Hypergraph
+from hypergraph import Graph, node
+
+@node(output_name="embedding")
+def embed(query: str) -> list[float]:
+    return model.embed(query)
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+@node(output_name="answer")
+def generate(docs: list[str], query: str) -> str:
+    return llm.generate(docs, query)
+
+graph = Graph(nodes=[embed, retrieve, generate])
+```
+
+```python LangGraph
+from langgraph.graph import StateGraph
+from typing import TypedDict
+
+class State(TypedDict):
+    query: str
+    embedding: list[float]
+    docs: list[str]
+    answer: str
+
+def embed(state: State) -> dict:
+    return {"embedding": model.embed(state["query"])}
+
+def retrieve(state: State) -> dict:
+    return {"docs": db.search(state["embedding"])}
+
+def generate(state: State) -> dict:
+    return {"answer": llm.generate(state["docs"], state["query"])}
+
+graph = StateGraph(State)
+graph.add_node("embed", embed)
+graph.add_node("retrieve", retrieve)
+graph.add_node("generate", generate)
+graph.add_edge("embed", "retrieve")
+graph.add_edge("retrieve", "generate")
+graph.set_entry_point("embed")
+graph.set_finish_point("generate")
+compiled = graph.compile()
+```
+
+```python Hamilton
+from hamilton.function_modifiers import tag
+
+def embedding(query: str) -> list[float]:
+    return model.embed(query)
+
+def docs(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+def answer(docs: list[str], query: str) -> str:
+    return llm.generate(docs, query)
+
+# Driver setup required
+from hamilton import driver
+dr = driver.Builder().with_modules(this_module).build()
+result = dr.execute(["answer"], inputs={"query": "hello"})
+```
+
+```python Pipefunc
+from pipefunc import pipefunc, Pipeline
+
+@pipefunc(output_name="embedding")
+def embed(query: str) -> list[float]:
+    return model.embed(query)
+
+@pipefunc(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+@pipefunc(output_name="answer")
+def generate(docs: list[str], query: str) -> str:
+    return llm.generate(docs, query)
+
+pipeline = Pipeline([embed, retrieve, generate])
+```
+</CodeGroup>
+
+<div className="comparison-table">
+  <table>
+    <thead>
+      <tr>
+        <th>Framework</th>
+        <th>Lines of Code</th>
+        <th>Boilerplate</th>
+        <th>State Schema</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Hypergraph</strong></td>
+        <td>12</td>
+        <td>None</td>
+        <td>None</td>
+      </tr>
+      <tr>
+        <td><strong>LangGraph</strong></td>
+        <td>25</td>
+        <td>State TypedDict, manual edges, entry/finish points</td>
+        <td>Required</td>
+      </tr>
+      <tr>
+        <td><strong>Hamilton</strong></td>
+        <td>14</td>
+        <td>Driver setup</td>
+        <td>None</td>
+      </tr>
+      <tr>
+        <td><strong>Pipefunc</strong></td>
+        <td>13</td>
+        <td>None</td>
+        <td>None</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+## Code Comparison: Agentic Loop
+
+A multi-turn conversation with iterative retrieval.
+
+<CodeGroup>
+```python Hypergraph
+from hypergraph import Graph, node, route, END
+
+@node(output_name="response")
+def generate(docs: list, messages: list) -> str:
+    return llm.chat(docs, messages)
+
+@node(output_name="messages")
+def accumulate(messages: list, response: str) -> list:
+    return messages + [{"role": "assistant", "content": response}]
+
+@route(targets=["generate", END])
+def should_continue(messages: list) -> str:
+    if is_complete(messages):
+        return END
+    return "generate"
+
+graph = Graph(nodes=[generate, accumulate, should_continue])
+```
+
+```python LangGraph
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated
+from operator import add
+
+class State(TypedDict):
+    messages: Annotated[list, add]  # Reducer required
+    docs: list
+    response: str
+
+def generate(state: State) -> dict:
+    response = llm.chat(state["docs"], state["messages"])
+    return {"response": response}
+
+def accumulate(state: State) -> dict:
+    return {"messages": [{"role": "assistant", "content": state["response"]}]}
+
+def should_continue(state: State) -> str:
+    if is_complete(state["messages"]):
+        return END
+    return "generate"
+
+graph = StateGraph(State)
+graph.add_node("generate", generate)
+graph.add_node("accumulate", accumulate)
+graph.add_conditional_edges("accumulate", should_continue)
+graph.add_edge("generate", "accumulate")
+graph.set_entry_point("generate")
+compiled = graph.compile()
+```
+
+```python Hamilton / Pipefunc
+# Hamilton and pipefunc are DAG frameworks — cycles are outside their scope.
+# For iterative patterns, you'd handle the loop externally:
+
+while not is_complete(messages):
+    result = driver.execute(["response"], inputs={"messages": messages})
+    messages.append({"role": "assistant", "content": result["response"]})
+```
+</CodeGroup>
+
+## Key Differences
+
+### State Model
+
+<table>
+  <thead>
+    <tr>
+      <th>Framework</th>
+      <th>State Model</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>hypergraph</strong></td>
+      <td>Edges inferred from names. No schema needed.</td>
+    </tr>
+    <tr>
+      <td><strong>LangGraph</strong></td>
+      <td>Explicit TypedDict with reducers for appends</td>
+    </tr>
+    <tr>
+      <td><strong>Pydantic-Graph</strong></td>
+      <td>Pydantic models with explicit read/write</td>
+    </tr>
+    <tr>
+      <td><strong>Hamilton</strong></td>
+      <td>Outputs flow forward, no shared state</td>
+    </tr>
+    <tr>
+      <td><strong>Pipefunc</strong></td>
+      <td>Outputs flow forward, no shared state</td>
+    </tr>
+  </tbody>
+</table>
+
+### Function Portability
+
+Can you test functions without the framework?
+
+<table>
+  <thead>
+    <tr>
+      <th>Framework</th>
+      <th>Portability</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>hypergraph</strong></td>
+      <td><code>embed.func("hello")</code> - direct access ✓</td>
+    </tr>
+    <tr>
+      <td><strong>LangGraph</strong></td>
+      <td>Functions take <code>State</code> dict - framework-coupled ✗</td>
+    </tr>
+    <tr>
+      <td><strong>Pydantic-Graph</strong></td>
+      <td>Functions take context - framework-coupled ✗</td>
+    </tr>
+    <tr>
+      <td><strong>Hamilton</strong></td>
+      <td>Pure functions - fully portable ✓</td>
+    </tr>
+    <tr>
+      <td><strong>Pipefunc</strong></td>
+      <td><code>embed.func("hello")</code> - direct access ✓</td>
+    </tr>
+  </tbody>
+</table>
+
+## When to Choose Each
+
+### Choose Hypergraph When
+
+<CardGroup cols={2}>
+  <Card title="Unified Workflows" icon="diagram-project">
+    You need both DAGs and agentic patterns in one framework
+  </Card>
+  
+  <Card title="Minimal Boilerplate" icon="minimize">
+    You want the cleanest possible API with automatic wiring
+  </Card>
+  
+  <Card title="Hierarchical Composition" icon="layer-group">
+    You're building nested workflows (DAGs in cycles, cycles in DAGs)
+  </Card>
+  
+  <Card title="Multi-Agent Systems" icon="users">
+    You're orchestrating multiple agents with complex control flow
+  </Card>
+</CardGroup>
+
+### Choose LangGraph When
+
+- You're already in the LangChain ecosystem
+- You need LangChain integrations (tools, retrievers, etc.)
+- You want a mature, production-tested solution
+- You prefer explicit state management
+
+### Choose Hamilton When
+
+- You're doing data engineering, feature engineering, or ML pipelines
+- Lineage tracking and observability matter (Hamilton UI)
+- You want a mature framework with years of production use at scale
+- You need portability across execution environments (notebooks, Airflow, Spark)
+
+### Choose Pipefunc When
+
+- You're doing scientific computing, simulations, or parameter sweeps
+- You need HPC/SLURM integration for cluster execution
+- Low orchestration overhead matters for compute-intensive workloads
+- You want n-dimensional map operations with adaptive scheduling
+
+### Choose Pydantic-Graph When
+
+- You want Pydantic integration for validation
+- Type validation at runtime is important
+- You're building API-driven workflows
+
+## Honest Tradeoffs
+
+Hypergraph is younger than these alternatives. Tradeoffs to consider:
+
+<Warning>
+  <table>
+    <thead>
+      <tr>
+        <th>Area</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Maturity</td>
+        <td>Alpha - API may change</td>
+      </tr>
+      <tr>
+        <td>Production use</td>
+        <td>Limited testing at scale</td>
+      </tr>
+      <tr>
+        <td>Ecosystem</td>
+        <td>Smaller community</td>
+      </tr>
+      <tr>
+        <td>Integrations</td>
+        <td>Fewer pre-built connectors</td>
+      </tr>
+    </tbody>
+  </table>
+</Warning>
+
+<Info>
+  If you need a battle-tested solution today, LangGraph or Hamilton may be safer choices. If you value the unified model and cleaner API, hypergraph is worth evaluating.
+</Info>
+
+## Migration Path
+
+### From Hamilton/Pipefunc
+
+Minimal changes - the decorator pattern is similar:
+
+<CodeGroup>
+```python Hamilton
+def embedding(query: str) -> list[float]:
+    return model.embed(query)
+```
+
+```python Hypergraph
+@node(output_name="embedding")
+def embed(query: str) -> list[float]:
+    return model.embed(query)
+```
+</CodeGroup>
+
+<Tip>
+  Main difference: Add `output_name` parameter to explicitly name what the function produces.
+</Tip>
+
+### From LangGraph
+
+Bigger changes - remove state schema, refactor functions:
+
+<CodeGroup>
+```python LangGraph
+class State(TypedDict):
+    docs: list
+    query: str
+    response: str
+
+def generate(state: State) -> dict:
+    return {"response": llm.chat(state["docs"], state["query"])}
+```
+
+```python Hypergraph
+@node(output_name="response")
+def generate(docs: list, query: str) -> str:
+    return llm.chat(docs, query)
+```
+</CodeGroup>
+
+<Tip>
+  The function becomes pure - takes inputs directly, returns output directly. No state dict.
+</Tip>
+
+## Summary
+
+<table>
+  <thead>
+    <tr>
+      <th>Framework</th>
+      <th>Best For</th>
+      <th>Key Strength</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Hypergraph</strong></td>
+      <td>Unified DAG + agent workflows</td>
+      <td>One framework for everything</td>
+    </tr>
+    <tr>
+      <td><strong>LangGraph</strong></td>
+      <td>LangChain-based agents</td>
+      <td>Mature ecosystem, integrations</td>
+    </tr>
+    <tr>
+      <td><strong>Hamilton</strong></td>
+      <td>Data/ML pipelines at scale</td>
+      <td>Lineage, observability, maturity</td>
+    </tr>
+    <tr>
+      <td><strong>Pipefunc</strong></td>
+      <td>Scientific computing, HPC</td>
+      <td>Performance, cluster execution</td>
+    </tr>
+    <tr>
+      <td><strong>Pydantic-Graph</strong></td>
+      <td>API-driven workflows</td>
+      <td>Runtime validation</td>
+    </tr>
+  </tbody>
+</table>

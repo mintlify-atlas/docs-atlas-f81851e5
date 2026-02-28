@@ -1,0 +1,308 @@
+---
+title: 'Guiding Principles'
+description: 'Design principles that govern Hypergraph'
+icon: 'compass'
+---
+
+These principles govern hypergraph's design and day-to-day usage. Use this as a practical rubric for deciding whether a workflow design fits hypergraph.
+
+## 1. Portable Functions
+
+Your functions should look the same whether they run inside hypergraph or not. The `@node` decorator adds metadata; it should not force a framework-specific coding style.
+
+<Tip>
+  Functions remain directly callable. Core behavior is normal Python function execution.
+</Tip>
+
+**Good example:**
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return model.embed(text)
+
+# Test without the framework
+assert embed.func("hello") == model.embed("hello")
+```
+
+**Break example:**
+- Function logic requires framework state object structure to work
+- Removing `@node` breaks core business logic
+
+## 2. Zero Ceremony
+
+Graph complexity should match problem complexity, not framework requirements.
+
+No state schemas. No manual edge wiring for ordinary data flow.
+
+```python
+# This is all you need for a simple pipeline
+graph = Graph([embed, retrieve, generate])
+```
+
+<Note>
+  Data edges are inferred by matching output and input names. Manual wiring is only needed for renaming or adapting to different contexts.
+</Note>
+
+**Break example:**
+- Adding adapter/plumbing nodes only to satisfy orchestration mechanics
+
+## 3. Names Are Contracts
+
+Edges are inferred from matching output and input names. Output names are API contracts.
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]: ...
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]: ...
+
+# Edge automatically created: embed.embedding → retrieve.embedding
+```
+
+**Break example:**
+- Invalid names (`"bad-output"`, keyword output names)
+- Ambiguous naming collisions
+
+## 4. Validate Early, Fail Clearly
+
+Structural errors should fail when building the graph, not while a long run is in progress.
+
+<CardGroup cols={2}>
+  <Card title="Caught at Build Time" icon="shield-check">
+    Duplicate node names, invalid targets, missing inputs, type mismatches
+  </Card>
+  <Card title="Clear Error Messages" icon="message-exclamation">
+    Helpful diagnostics that point to the exact issue
+  </Card>
+</CardGroup>
+
+**Concrete break example:**
+```python
+@route(targets=["step_a", "step_b", END])
+def decide(x: int) -> str:
+    return "step_c"  # invalid target!
+
+# Fails immediately at graph construction
+Graph([decide, step_a, step_b])  # GraphConfigError
+```
+
+Build-time validation includes:
+- Duplicate node names
+- Invalid graph/node/output names
+- Shared-parameter default consistency
+- Invalid gate targets and gate self-targeting
+- `multi_target` output conflicts
+- Disallowed cache usage on unsupported node types
+- Strict type compatibility when enabled
+
+## 5. Composition Over Configuration
+
+When workflows grow, nest graphs instead of adding flags or ad-hoc configuration surfaces.
+
+A graph is a node: build and test independently, then reuse via `.as_node()`.
+
+```python
+rag = Graph([embed, retrieve, generate], name="rag")
+workflow = Graph([validate, rag.as_node(), format_output])
+```
+
+<Tip>
+  `GraphNode` projects inner graph inputs/outputs. Nested graphs execute as encapsulated units inside outer graphs.
+</Tip>
+
+**Break example:**
+- Forcing unrelated concerns into one flat, hard-to-reason-about graph
+
+## 6. Keep Routing Simple
+
+Routing nodes decide **where** execution goes, not **what heavy computation** happens.
+
+**Good example:**
+```python
+@route(targets=["retry", END])
+def should_continue(score: float) -> str:
+    return END if score >= 0.8 else "retry"
+```
+
+**Break example:**
+- Doing expensive LLM/tool work inside a routing function
+- Returning undeclared targets
+
+<Note>
+  Routing should be quick and based on already-computed values. Async routing functions and generator routing functions are rejected.
+</Note>
+
+## 7. Cycles Require Entry Points
+
+When a value participates in a cycle, the first iteration needs an initial value. Entry points group these by the node where execution starts.
+
+```python
+# For cyclic graphs, provide initial values for cyclic parameters
+result = runner.run(graph, {"messages": [], "query": "..."})
+```
+
+<Tip>
+  Entry point values can be bound with `bind()` or provided at `runner.run()` time.
+</Tip>
+
+**Break example:**
+- Running cyclic flows without initializing entrypoint values
+
+## 8. Immutability
+
+Nodes and graphs behave like values. Transformations produce new instances.
+
+```python
+base = Graph([a, b, c])
+configured = base.bind(model="gpt-4")
+# base is unchanged — bind() returns a new graph
+```
+
+<Note>
+  `with_*`, `bind`, `select`, and `unbind` are documented as immutable transformations.
+</Note>
+
+**Break example:**
+- Assuming `graph.bind(...)` mutates in place and discarding the returned graph
+
+## 9. Explicit Over Implicit
+
+Be explicit about outputs, renames, and control flow intent.
+
+```python
+@node(output_name="embedding")  # Explicit output name
+def embed(text: str) -> list[float]: ...
+
+# Explicit rename
+adapted = embed.with_inputs(text="document")
+```
+
+<Tip>
+  Warnings surface potentially ambiguous intent. Reserved names and collisions are rejected.
+</Tip>
+
+**Break example:**
+- Relying on hidden conventions instead of explicit naming and routing declarations
+
+## 10. Think Singular, Scale with Map
+
+Write logic for one item. Scale orchestration with `.map()` or `GraphNode.map_over(...)`.
+
+```python
+# Write for ONE document
+@node(output_name="embedding")
+def embed(text: str) -> list[float]: ...
+
+# Scale to many
+mapped = inner.as_node().map_over("x")
+```
+
+<CardGroup cols={2}>
+  <Card title="Singular Logic" icon="1">
+    Each function processes one item, keeping it simple and testable
+  </Card>
+  <Card title="Framework Scaling" icon="arrows-split-up-and-left">
+    Use map_over or runner.map() to fan out over collections
+  </Card>
+</CardGroup>
+
+**Break example:**
+- Embedding manual batch loops into node logic instead of mapping execution
+
+## 11. Caching Is Opt-In and Deterministic
+
+Caching should depend on stable node definition + input values.
+
+```python
+@node(output_name="embedding", cache=True)
+def embed(text: str) -> list[float]: ...
+```
+
+<Note>
+  Cache key includes `definition_hash` and resolved inputs. Code changes invalidate cache naturally via definition hash changes.
+</Note>
+
+Caching behavior:
+- Requires node opt-in (`cache=True`) and a runner cache backend
+- `GraphNode` caching is disallowed
+- `InterruptNode` defaults to `cache=False` but is configurable
+- Gate routing decisions can be cached and replayed safely
+
+## 12. Use `.bind()` for Shared Resources
+
+Provide stateful/non-copyable dependencies through bindings, not mutable signature defaults.
+
+**Good example:**
+```python
+graph = Graph([embed_query]).bind(embedder=my_embedder)
+```
+
+**Break example:**
+```python
+@node(output_name="embedding")
+def embed_query(query: str, embedder: Embedder = Embedder()): ...
+# risky/non-copyable default behavior
+```
+
+<Tip>
+  Bound values are intentionally shared (not deep-copied). Signature defaults are deep-copied per run; non-copyable defaults fail clearly.
+</Tip>
+
+## 13. Separate Computation From Observation
+
+Execution logic and observability should stay decoupled.
+
+```python
+runner.run(
+    graph,
+    values,
+    event_processors=[RichProgressProcessor()]
+)
+```
+
+<Note>
+  Runners emit structured lifecycle events. Processors are best-effort; observability should not alter business logic.
+</Note>
+
+**Break example:**
+- Embedding logging/telemetry control flow directly into node computation
+
+## 14. One Framework, Full Spectrum
+
+The same primitives (`@node`, `@route`, `Graph`, runners) span DAGs, branches, loops, and nested workflows.
+
+```python
+# Simple DAG pipeline
+pipeline = Graph([clean, transform, load])
+
+# Agentic loop
+agent = Graph([generate, evaluate, should_continue])
+
+# Composition
+workflow = Graph([validate, agent.as_node(), report])
+```
+
+<Tip>
+  Same execution model supports DAGs and cyclic patterns. Composition and routing remain consistent as complexity grows.
+</Tip>
+
+## Common Design Dilemmas
+
+| Dilemma | Option A | Option B | Prefer | Why |
+|---------|----------|----------|--------|-----|
+| Function design | Framework-coupled `state` dict | Plain function params/returns | **B** | Keeps portability and local testability |
+| Growing complexity | Flat mega-graph | Nested graphs via `.as_node()` | **B** | Better encapsulation and reuse |
+| Validation timing | Catch during execution | Catch at `Graph(...)` construction | **B** | Faster feedback, lower run-time risk |
+| Scaling strategy | Manual loops in nodes | `.map()` / `map_over` | **B** | Cleaner node semantics |
+| Shared dependencies | Signature defaults for clients/connections | `.bind()` shared resources | **B** | Correct lifecycle and copy semantics |
+
+## The Underlying Test
+
+A design likely fits hypergraph when:
+
+- Functions are testable as plain Python
+- Graph wiring mostly comes from meaningful names
+- Structural mistakes surface before execution
+- Nested composition reduces complexity
+- Diffs track business logic, not framework plumbing

@@ -1,122 +1,118 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Hypergraph",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/gilad-rubin/hypergraph"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/gilad-rubin/hypergraph"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "comparison",
+              "when-to-use"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "core-concepts/nodes",
+              "core-concepts/graphs",
+              "core-concepts/runners",
+              "core-concepts/execution-modes"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Patterns",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "patterns/simple-pipeline",
+              "patterns/routing",
+              "patterns/agentic-loops",
+              "patterns/hierarchical",
+              "patterns/multi-agent",
+              "patterns/streaming",
+              "patterns/human-in-the-loop",
+              "patterns/caching"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Real-World Examples",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "examples/rag-pipeline",
+              "examples/multi-turn-rag",
+              "examples/data-pipeline",
+              "examples/evaluation-harness",
+              "examples/prompt-optimization"
+            ]
+          },
+          {
+            "group": "How-To Guides",
+            "pages": [
+              "guides/batch-processing",
+              "guides/visualize-graphs",
+              "guides/observe-execution",
+              "guides/rename-and-adapt",
+              "guides/integrate-with-llms",
+              "guides/test-without-framework"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Components",
             "pages": [
-              "api-reference/introduction"
+              "api/nodes",
+              "api/graph",
+              "api/runners",
+              "api/input-spec"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Advanced",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/gates",
+              "api/events",
+              "api/cache"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Design",
+        "groups": [
+          {
+            "group": "Philosophy",
+            "pages": [
+              "design/philosophy",
+              "design/guiding-principles",
+              "design/inspiration",
+              "design/roadmap"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

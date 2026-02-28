@@ -1,0 +1,350 @@
+---
+title: Nodes
+description: Node types and decorators for building computation graphs
+---
+
+# Nodes
+
+Nodes are the fundamental building blocks of Hypergraph computation graphs. Each node represents a unit of computation with defined inputs and outputs.
+
+## Node Decorators
+
+### @node
+
+```python
+from hypergraph import node
+
+@node(output_name="result")
+def process(x: int) -> int:
+    return x * 2
+```
+
+Decorator to wrap a function as a FunctionNode.
+
+<ParamField path="source" type="Callable | None">
+  The function to wrap (when used without parentheses)
+</ParamField>
+
+<ParamField path="output_name" type="str | tuple[str, ...] | None">
+  Name(s) for output value(s). If None, creates a side-effect only node with `outputs = ()`
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache results. Requires a cache backend on the runner
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s). Auto-produced with sentinel value when node runs
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s). Node won't run until these values exist and are fresh
+</ParamField>
+
+<ResponseField name="FunctionNode">
+  Returns a FunctionNode instance that wraps the function
+</ResponseField>
+
+<Note>
+  If the function has a return type annotation but no `output_name` is provided, a warning is emitted to help catch mistakes.
+</Note>
+
+### @interrupt
+
+```python
+from hypergraph import interrupt
+
+@interrupt(output_name="decision")
+def approval(draft: str) -> str:
+    return "auto-approved"  # returns value -> auto-resolve
+    # return None          # returns None -> pause
+```
+
+Decorator to create a pause point for human-in-the-loop workflows.
+
+<ParamField path="output_name" type="str | tuple[str, ...]" required>
+  Name(s) for output value(s). Required (defines where human responses are written)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache results
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ResponseField name="InterruptNode">
+  Returns an InterruptNode instance
+</ResponseField>
+
+## Node Classes
+
+### HyperNode
+
+Abstract base class for all node types with shared rename functionality.
+
+<ParamField path="name" type="str">
+  Public node name
+</ParamField>
+
+<ParamField path="inputs" type="tuple[str, ...]">
+  Input parameter names
+</ParamField>
+
+<ParamField path="outputs" type="tuple[str, ...]">
+  Output value names
+</ParamField>
+
+#### Properties
+
+<ResponseField name="definition_hash" type="str">
+  SHA256 hash of the node's definition for caching and change detection
+</ResponseField>
+
+<ResponseField name="is_async" type="bool">
+  Whether this node requires async execution (default: False)
+</ResponseField>
+
+<ResponseField name="is_generator" type="bool">
+  Whether this node yields multiple values (default: False)
+</ResponseField>
+
+<ResponseField name="is_interrupt" type="bool">
+  Whether this is a pause point for human-in-the-loop (default: False)
+</ResponseField>
+
+<ResponseField name="cache" type="bool">
+  Whether results should be cached (default: False)
+</ResponseField>
+
+<ResponseField name="hide" type="bool">
+  Whether this node is hidden from visualization (default: False)
+</ResponseField>
+
+<ResponseField name="wait_for" type="tuple[str, ...]">
+  Ordering-only inputs this node waits for
+</ResponseField>
+
+<ResponseField name="data_outputs" type="tuple[str, ...]">
+  Outputs that carry data (excludes emit-only outputs)
+</ResponseField>
+
+#### Methods
+
+<ParamField path="with_name" type="(name: str) -> HyperNode">
+  Return new node with different name
+</ParamField>
+
+<ParamField path="with_inputs" type="(mapping: dict[str, str] | None = None, **kwargs: str) -> HyperNode">
+  Return new node with renamed inputs
+</ParamField>
+
+<ParamField path="with_outputs" type="(mapping: dict[str, str] | None = None, **kwargs: str) -> HyperNode">
+  Return new node with renamed outputs
+</ParamField>
+
+<ParamField path="has_default_for" type="(param: str) -> bool">
+  Check if node has a fallback value for an input parameter
+</ParamField>
+
+<ParamField path="get_default_for" type="(param: str) -> Any">
+  Get fallback value for an input parameter. Raises KeyError if none exists
+</ParamField>
+
+<ParamField path="get_input_type" type="(param: str) -> type | None">
+  Get expected type for an input parameter from annotations
+</ParamField>
+
+<ParamField path="get_output_type" type="(output: str) -> type | None">
+  Get type of an output value from annotations
+</ParamField>
+
+### FunctionNode
+
+Wraps a Python function as a graph node. Created via `@node` decorator or `FunctionNode()` constructor.
+
+```python
+from hypergraph import FunctionNode
+
+def double(x: int) -> int:
+    return x * 2
+
+node = FunctionNode(double, output_name="doubled")
+```
+
+Supports all four execution modes:
+- Sync functions: `def func(...)`
+- Async functions: `async def func(...)`
+- Sync generators: `def func(...): yield ...`
+- Async generators: `async def func(...): yield ...`
+
+<ParamField path="source" type="Callable | FunctionNode" required>
+  Function to wrap, or existing FunctionNode (extracts `.func`)
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Public node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="output_name" type="str | tuple[str, ...] | None">
+  Name(s) for output value(s). If None, `outputs = ()` (side-effect only node)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache results
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+#### Properties
+
+<ResponseField name="func" type="Callable">
+  The wrapped function
+</ResponseField>
+
+<ResponseField name="is_async" type="bool">
+  True if async def or async generator
+</ResponseField>
+
+<ResponseField name="is_generator" type="bool">
+  True if yields multiple values
+</ResponseField>
+
+<ResponseField name="output_annotation" type="dict[str, Any]">
+  Type annotations for output values. For single output: maps `output_name` to return type. For multiple outputs with tuple return: maps each output to corresponding tuple element type
+</ResponseField>
+
+### GraphNode
+
+Wraps a Graph for use as a node in another graph, enabling hierarchical composition.
+
+```python
+from hypergraph import Graph
+
+inner = Graph([...], name="preprocess")
+outer = Graph([inner.as_node(), ...])
+```
+
+Create via `Graph.as_node()` rather than directly.
+
+<ParamField path="graph" type="Graph" required>
+  The graph to wrap
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Node name (default: use `graph.name` if set)
+</ParamField>
+
+#### Properties
+
+<ResponseField name="graph" type="Graph">
+  The wrapped graph
+</ResponseField>
+
+<ResponseField name="definition_hash" type="str">
+  Hash of the nested graph (delegates to `graph.definition_hash`)
+</ResponseField>
+
+<ResponseField name="is_async" type="bool">
+  True if the nested graph contains any async nodes
+</ResponseField>
+
+<ResponseField name="map_config" type="tuple[list[str], Literal['zip', 'product'], ErrorHandling] | None">
+  Map configuration if set via `map_over()`, else None
+</ResponseField>
+
+#### Methods
+
+<ParamField path="map_over" type="(*params: str, mode: Literal['zip', 'product'] = 'zip', error_handling: Literal['raise', 'continue'] = 'raise', clone: bool | list[str] = False) -> GraphNode">
+  Configure this GraphNode for iteration over input parameters. When configured, the runner executes the inner graph multiple times, once for each combination of values. Outputs become lists of results.
+  
+  - **params**: Input parameter names to iterate over (should receive list values at runtime)
+  - **mode**: "zip" for parallel iteration (default) or "product" for cartesian product
+  - **error_handling**: "raise" (default) stops on first failure, "continue" collects partial results
+  - **clone**: Control deep-copying of broadcast values per iteration. False (default) shares by reference, True deep-copies all, or list of param names to deep-copy selectively
+</ParamField>
+
+### InterruptNode
+
+Pause point for human-in-the-loop workflows. Identical to FunctionNode except:
+- `output_name` is required (must define where responses go)
+- `is_interrupt` property returns `True`
+- Handler returning `None` pauses for human input
+- Handler returning a value auto-resolves
+
+```python
+from hypergraph import InterruptNode
+
+def approval(draft: str) -> str:
+    return "auto-approved"  # auto-resolve
+    # return None         # pause
+
+node = InterruptNode(approval, output_name="decision")
+```
+
+<ParamField path="source" type="Callable | FunctionNode" required>
+  Function to wrap
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Public node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="output_name" type="str | tuple[str, ...]" required>
+  Name(s) for output value(s). Required for interrupts
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache results
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>

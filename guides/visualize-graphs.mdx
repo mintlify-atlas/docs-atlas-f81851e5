@@ -1,0 +1,210 @@
+---
+title: Visualize Graphs
+description: See your graph structure with built-in interactive visualization
+---
+
+Hypergraph includes built-in interactive visualization. Call `.visualize()` on any graph to see its structure in a Jupyter or VSCode notebook — or save it as a standalone HTML file.
+
+## Basic Usage
+
+```python
+from hypergraph import Graph, node
+
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+@node(output_name="result")
+def add_one(doubled: int) -> int:
+    return doubled + 1
+
+graph = Graph([double, add_one])
+graph.visualize()
+```
+
+This renders an interactive graph diagram inline. Nodes are connected automatically based on their input/output names.
+
+<Tip>
+  The visualization automatically infers edges from parameter names. If `add_one` has input `doubled` and `double` produces `doubled`, the edge appears automatically.
+</Tip>
+
+## Parameters
+
+```python
+graph.visualize(
+    depth=0,                # How many nested graph levels to expand
+    theme="auto",           # "dark", "light", or "auto"
+    show_types=False,       # Show type annotations on nodes
+    separate_outputs=False, # Render outputs as separate DATA nodes
+    filepath=None,          # Save to HTML file instead of displaying
+)
+```
+
+### `depth` — Expand Nested Graphs
+
+When your graph contains nested graphs (via `.as_node()`), `depth` controls how many levels are expanded on load.
+
+```python
+inner = Graph([double, add_one], name="pipeline")
+outer = Graph([inner.as_node(), final_step])
+
+outer.visualize(depth=0)  # Inner graph shown as a single collapsed box
+outer.visualize(depth=1)  # Inner graph expanded, showing double → add_one
+outer.visualize(depth=2)  # Two levels deep (if further nesting exists)
+```
+
+<Note>
+  You can also expand/collapse nested graphs interactively by clicking the toggle button on container nodes.
+</Note>
+
+### `theme` — Color Scheme
+
+<CodeGroup>
+```python Auto (Default)
+graph.visualize(theme="auto")  # Detects notebook theme
+```
+
+```python Dark
+graph.visualize(theme="dark")  # Dark background with light nodes
+```
+
+```python Light
+graph.visualize(theme="light")  # Light background with dark nodes
+```
+</CodeGroup>
+
+### `show_types` — Type Annotations
+
+```python
+graph.visualize(show_types=True)
+```
+
+Displays parameter types and return types on each node. Long type names are shortened (e.g., `my_module.MyClass` → `MyClass`, truncated at 25 characters).
+
+<CodeGroup>
+```python Without Types
+# Node shows: double(x) → doubled
+graph.visualize(show_types=False)
+```
+
+```python With Types
+# Node shows: double(x: int) → doubled: int
+graph.visualize(show_types=True)
+```
+</CodeGroup>
+
+### `separate_outputs` — Output Visibility
+
+```python
+graph.visualize(separate_outputs=True)
+```
+
+By default, edges connect functions directly. With `separate_outputs=True`, each output becomes a visible DATA node, making the data flow explicit.
+
+<CodeGroup>
+```python Direct Edges (Default)
+# double → add_one
+graph.visualize(separate_outputs=False)
+```
+
+```python Explicit Data Nodes
+# double → [doubled] → add_one
+graph.visualize(separate_outputs=True)
+```
+</CodeGroup>
+
+<Tip>
+  Use `separate_outputs=True` when debugging complex graphs with many outputs or when outputs are consumed by multiple downstream nodes.
+</Tip>
+
+### `filepath` — Save to HTML
+
+```python
+graph.visualize(filepath="my_graph.html")
+```
+
+Saves a standalone HTML file with all assets bundled (React, React Flow, Tailwind CSS). Opens in any browser, no server needed.
+
+<Note>
+  The HTML file is self-contained and can be shared via email, Slack, or embedded in documentation.
+</Note>
+
+## Node Types in the Visualization
+
+| Node Type | Visual Style | Description |
+|-----------|-------------|-------------|
+| **Function** | Indigo border | Regular `@node` functions |
+| **Pipeline** | Amber border | Nested graphs (containers) |
+| **Route** | Purple border | `@route` and `@ifelse` gate nodes |
+| **Data** | Green border | Output data nodes (in `separate_outputs` mode) |
+| **Input** | Gray | Graph input parameters |
+
+## Interactive Features
+
+<Steps>
+  <Step title="Pan and Zoom">
+    Click and drag to pan. Scroll to zoom in/out.
+  </Step>
+  
+  <Step title="Expand Nested Graphs">
+    Click the toggle button on container nodes to expand/collapse nested graphs.
+  </Step>
+  
+  <Step title="Inspect Node Details">
+    Hover over nodes to see full type signatures and parameter names.
+  </Step>
+</Steps>
+
+## Real-World Example
+
+```python
+from hypergraph import Graph, node, AsyncRunner
+
+# RAG pipeline
+@node(output_name="embedding")
+async def embed(query: str) -> list[float]:
+    return await embedder.embed(query)
+
+@node(output_name="docs")
+async def retrieve(embedding: list[float], k: int = 5) -> list[str]:
+    results = await vector_db.search(embedding, k=k)
+    return [doc["content"] for doc in results]
+
+@node(output_name="answer")
+def generate(docs: list[str], query: str) -> str:
+    context = "\n\n---\n\n".join(docs)
+    return llm.generate(f"Context: {context}\n\nQuestion: {query}")
+
+rag = Graph([embed, retrieve, generate], name="rag")
+
+# Visualize with types and data nodes
+rag.visualize(
+    show_types=True,
+    separate_outputs=True,
+    theme="dark",
+)
+```
+
+This shows:
+- `embed(query: str)` → `[embedding: list[float]]` → `retrieve(embedding, k)`
+- `retrieve` → `[docs: list[str]]` → `generate(docs, query)`
+- Parallel inputs `query` feeding both `embed` and `generate`
+
+## Works Offline
+
+All JavaScript dependencies (React, React Flow, Kiwi constraint solver) are bundled with hypergraph. No CDN calls, no internet required.
+
+<Tip>
+  Visualizations work in air-gapped environments and CI pipelines without external network access.
+</Tip>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Observe Execution" icon="chart-line" href="/guides/observe-execution">
+    Track runtime behavior with event processors
+  </Card>
+  <Card title="Hierarchical Composition" icon="sitemap" href="/patterns/hierarchical">
+    Build complex nested graphs
+  </Card>
+</CardGroup>

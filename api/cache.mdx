@@ -1,0 +1,294 @@
+---
+title: Cache
+description: Cache backends for node result caching
+---
+
+# Cache
+
+Hypergraph provides cache backends for storing and reusing node execution results.
+
+## Cache Backends
+
+### CacheBackend
+
+Protocol for cache backend implementations. All cache backends must implement:
+
+```python
+from hypergraph.cache import CacheBackend
+
+class CustomCache:
+    def get(self, key: str) -> tuple[bool, Any]:
+        """Return (hit, value). hit=False means cache miss."""
+        ...
+    
+    def set(self, key: str, value: Any) -> None:
+        """Store a value."""
+        ...
+```
+
+### InMemoryCache
+
+Dict-based in-memory cache with optional LRU eviction.
+
+```python
+from hypergraph import SyncRunner
+from hypergraph.cache import InMemoryCache
+
+cache = InMemoryCache(max_size=100)
+runner = SyncRunner(cache=cache)
+```
+
+<ParamField path="max_size" type="int | None">
+  Maximum number of entries. None means unlimited
+</ParamField>
+
+#### Methods
+
+<ParamField path="get" type="(key: str) -> tuple[bool, Any]">
+  Return (hit, value). Moves key to end for LRU tracking. Returns (False, None) on cache miss
+</ParamField>
+
+<ParamField path="set" type="(key: str, value: Any) -> None">
+  Store a value. Evicts least-recently-used entry if at capacity
+</ParamField>
+
+#### Example
+
+```python
+from hypergraph.cache import InMemoryCache
+
+cache = InMemoryCache(max_size=100)
+cache.set("key", "value")
+
+hit, value = cache.get("key")
+if hit:
+    print(f"Cache hit: {value}")
+else:
+    print("Cache miss")
+```
+
+### DiskCache
+
+Persistent disk-based cache using diskcache library.
+
+```python
+from hypergraph import SyncRunner
+from hypergraph.cache import DiskCache
+
+cache = DiskCache("/tmp/hg-cache")
+runner = SyncRunner(cache=cache)
+```
+
+<Note>
+  Requires `pip install hypergraph[cache]` (installs diskcache).
+</Note>
+
+<ParamField path="cache_dir" type="str" default="~/.cache/hypergraph">
+  Path to the cache directory
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Additional arguments passed to `diskcache.Cache`
+</ParamField>
+
+#### Security
+
+Values are serialized to bytes with pickle at write time. The raw bytes and an HMAC-SHA256 signature are stored together. On read, the HMAC is verified **before** deserialization, so tampered payloads are never unpickled.
+
+A per-directory secret key is generated on first use and stored in the cache directory.
+
+#### Methods
+
+<ParamField path="get" type="(key: str) -> tuple[bool, Any]">
+  Return (hit, value) from disk cache. Verifies HMAC integrity before deserializing. Tampered or unsigned entries are evicted and treated as cache misses
+</ParamField>
+
+<ParamField path="set" type="(key: str, value: Any) -> None">
+  Store a value to disk cache with HMAC signature. Serializes to bytes first, computes HMAC over the raw bytes, then stores both. Skips silently if value is not picklable
+</ParamField>
+
+#### Example
+
+```python
+from hypergraph.cache import DiskCache
+
+cache = DiskCache("/tmp/hg-cache")
+cache.set("key", "value")
+
+hit, value = cache.get("key")
+if hit:
+    print(f"Cache hit: {value}")
+else:
+    print("Cache miss")
+```
+
+## Cache Key Computation
+
+### compute_cache_key
+
+Compute a cache key from node identity and input values.
+
+```python
+from hypergraph.cache import compute_cache_key
+
+key = compute_cache_key(
+    definition_hash="abc123...",
+    inputs={"x": 5, "y": 10}
+)
+```
+
+<ParamField path="definition_hash" type="str" required>
+  The node's definition hash (from `node.definition_hash`)
+</ParamField>
+
+<ParamField path="inputs" type="dict[str, Any]" required>
+  Resolved input values for the node
+</ParamField>
+
+<ResponseField name="str">
+  SHA256 hex digest string, or empty string if inputs are not picklable
+</ResponseField>
+
+The cache key is computed as:
+1. Sort input items by key for determinism
+2. Serialize sorted inputs with pickle
+3. Combine definition hash + serialized inputs
+4. Return SHA256 hash of combined bytes
+
+## Using Cache with Nodes
+
+Nodes opt in to caching with the `cache=True` parameter:
+
+```python
+from hypergraph import node, Graph, SyncRunner
+from hypergraph.cache import InMemoryCache
+
+@node(output_name="result", cache=True)
+def expensive_computation(x: int) -> int:
+    print(f"Computing for x={x}")
+    return x ** 2
+
+graph = Graph([expensive_computation])
+cache = InMemoryCache()
+runner = SyncRunner(cache=cache)
+
+# First run: computes and caches
+result1 = runner.run(graph, {"x": 5})
+# Prints: "Computing for x=5"
+
+# Second run: served from cache
+result2 = runner.run(graph, {"x": 5})
+# Does not print (cache hit)
+
+assert result1["result"] == result2["result"] == 25
+```
+
+## Cache Behavior
+
+### What Gets Cached
+
+Only nodes with `cache=True` participate in caching:
+- FunctionNode: `@node(output_name="x", cache=True)`
+- RouteNode: `@route(targets=[...], cache=True)`
+- IfElseNode: `@ifelse(when_true="a", when_false="b", cache=True)`
+- InterruptNode: `@interrupt(output_name="x", cache=True)`
+
+### Cache Key Components
+
+The cache key includes:
+- Node definition hash (function source code, parameters, configuration)
+- Resolved input values (sorted for determinism)
+
+Changing either invalidates the cache:
+- Modify function body → new definition hash → cache miss
+- Different input values → different cache key → cache miss
+- Same inputs, same code → cache hit
+
+### Picklability
+
+Both inputs and outputs must be picklable:
+- **Inputs**: If not picklable, cache key computation fails → no caching
+- **Outputs**: If not picklable, cache write is skipped → logged warning
+
+Picklable types: primitives, lists, dicts, dataclasses, etc.
+Non-picklable: lambda functions, open file handles, some async objects
+
+## Best Practices
+
+<CodeGroup>
+
+```python InMemoryCache
+# Fast, loses cache on restart
+from hypergraph.cache import InMemoryCache
+
+cache = InMemoryCache(max_size=1000)
+runner = SyncRunner(cache=cache)
+```
+
+```python DiskCache
+# Persistent across runs, slower
+from hypergraph.cache import DiskCache
+
+cache = DiskCache("~/.cache/my-app")
+runner = AsyncRunner(cache=cache)
+```
+
+```python Combined
+# Two-tier: in-memory + disk fallback
+from hypergraph.cache import InMemoryCache, DiskCache
+
+class TwoTierCache:
+    def __init__(self, mem_size=100, disk_dir="~/.cache/hg"):
+        self.mem = InMemoryCache(max_size=mem_size)
+        self.disk = DiskCache(disk_dir)
+    
+    def get(self, key):
+        # Try memory first
+        hit, value = self.mem.get(key)
+        if hit:
+            return True, value
+        
+        # Fall back to disk
+        hit, value = self.disk.get(key)
+        if hit:
+            # Promote to memory
+            self.mem.set(key, value)
+            return True, value
+        
+        return False, None
+    
+    def set(self, key, value):
+        self.mem.set(key, value)
+        self.disk.set(key, value)
+
+cache = TwoTierCache()
+runner = SyncRunner(cache=cache)
+```
+
+</CodeGroup>
+
+### When to Use Caching
+
+<Expandable title="Good Use Cases">
+  - Expensive API calls with stable results (e.g., embeddings, LLM completions with fixed prompts)
+  - Complex computations that are deterministic
+  - Data preprocessing steps
+  - Retrieval/search operations with stable indices
+</Expandable>
+
+<Expandable title="Avoid Caching For">
+  - Non-deterministic operations (random numbers, current time)
+  - Operations with side effects (writing to database, sending emails)
+  - Rapidly changing data
+  - Inputs/outputs that are not picklable
+</Expandable>
+
+### Cache Invalidation
+
+Caches are automatically invalidated when:
+- Node code changes (new definition hash)
+- Input values change
+
+Manual invalidation:
+- InMemoryCache: Create new instance or manually clear dict
+- DiskCache: Delete cache directory or specific keys via `diskcache.Cache` API

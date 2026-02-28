@@ -1,0 +1,402 @@
+---
+title: Runners
+description: Graph execution engines for sync and async workflows
+---
+
+# Runners
+
+Runners are responsible for executing graphs. Different runners provide different execution strategies.
+
+## SyncRunner
+
+Synchronous runner for graph execution. Executes graphs without async support.
+
+```python
+from hypergraph import Graph, node, SyncRunner
+
+@node(output_name="doubled")
+def double(x: int) -> int:
+    return x * 2
+
+graph = Graph([double])
+runner = SyncRunner()
+result = runner.run(graph, {"x": 5})
+print(result["doubled"])  # 10
+```
+
+### Constructor
+
+<ParamField path="cache" type="CacheBackend | None">
+  Optional cache backend for node result caching. Nodes opt in with `cache=True`
+</ParamField>
+
+### Properties
+
+<ResponseField name="capabilities" type="RunnerCapabilities">
+  Capabilities object describing:
+  - `supports_cycles=True`
+  - `supports_async_nodes=False`
+  - `supports_streaming=False`
+  - `returns_coroutine=False`
+</ResponseField>
+
+<ResponseField name="default_max_iterations" type="int">
+  Default iteration cap for cyclic graphs (1000)
+</ResponseField>
+
+<ResponseField name="supported_node_types" type="set[type[HyperNode]]">
+  Node types this runner can execute: `{FunctionNode, GraphNode, IfElseNode, RouteNode}`
+</ResponseField>
+
+### Methods
+
+#### run
+
+```python
+result = runner.run(graph, {"x": 5}, select="doubled")
+```
+
+Execute a graph synchronously.
+
+<ParamField path="graph" type="Graph" required>
+  The graph to execute
+</ParamField>
+
+<ParamField path="values" type="dict[str, Any] | None">
+  Optional input values dict
+</ParamField>
+
+<ParamField path="select" type="str | list[str]" default="**">
+  Which outputs to return. `"**"` (default) = all outputs
+</ParamField>
+
+<ParamField path="on_missing" type="Literal['ignore', 'warn', 'error']" default="ignore">
+  How to handle missing selected outputs
+</ParamField>
+
+<ParamField path="on_internal_override" type="Literal['ignore', 'warn', 'error']" default="warn">
+  How to handle non-conflicting internal input overrides
+</ParamField>
+
+<ParamField path="entrypoint" type="str | None">
+  Optional explicit cycle entry point node name
+</ParamField>
+
+<ParamField path="max_iterations" type="int | None">
+  Max iterations for cyclic graphs (None = use default 1000)
+</ParamField>
+
+<ParamField path="error_handling" type="Literal['raise', 'continue']" default="raise">
+  How to handle node execution errors. "raise" (default) re-raises the original exception. "continue" returns RunResult with status=FAILED and partial values
+</ParamField>
+
+<ParamField path="event_processors" type="list[EventProcessor] | None">
+  Optional list of event processors to receive execution events
+</ParamField>
+
+<ParamField path="**input_values" type="Any">
+  Input values shorthand (merged with values)
+</ParamField>
+
+<ResponseField name="RunResult">
+  Dict-like object with output values and execution metadata:
+  - Access outputs: `result["key"]` or `result.get("key")`
+  - Status: `result.status` ("completed" or "failed")
+  - Error: `result.error` (exception if failed)
+</ResponseField>
+
+#### map
+
+```python
+results = runner.map(
+    graph,
+    {"items": [1, 2, 3]},
+    map_over="items"
+)
+```
+
+Execute a graph multiple times with different inputs.
+
+<ParamField path="graph" type="Graph" required>
+  The graph to execute
+</ParamField>
+
+<ParamField path="values" type="dict[str, Any] | None">
+  Optional input values dict (some should be lists for `map_over`)
+</ParamField>
+
+<ParamField path="map_over" type="str | list[str]" required>
+  Parameter name(s) to iterate over
+</ParamField>
+
+<ParamField path="map_mode" type="Literal['zip', 'product']" default="zip">
+  "zip" for parallel iteration, "product" for cartesian product
+</ParamField>
+
+<ParamField path="clone" type="bool | list[str]" default="False">
+  Deep-copy broadcast values per iteration. False (default) = share by reference, True = deep-copy all broadcast values, list[str] = deep-copy only named params
+</ParamField>
+
+<ParamField path="select" type="str | list[str]" default="**">
+  Which outputs to return
+</ParamField>
+
+<ParamField path="on_missing" type="Literal['ignore', 'warn', 'error']" default="ignore">
+  How to handle missing selected outputs
+</ParamField>
+
+<ParamField path="on_internal_override" type="Literal['ignore', 'warn', 'error']" default="warn">
+  How to handle non-conflicting internal input overrides
+</ParamField>
+
+<ParamField path="event_processors" type="list[EventProcessor] | None">
+  Optional list of event processors to receive execution events
+</ParamField>
+
+<ParamField path="**input_values" type="Any">
+  Input values shorthand (merged with values)
+</ParamField>
+
+<ResponseField name="list[RunResult]">
+  List of RunResult, one per iteration
+</ResponseField>
+
+## AsyncRunner
+
+Asynchronous runner for graph execution. Supports both sync and async nodes with concurrent execution.
+
+```python
+from hypergraph import Graph, node, AsyncRunner
+import asyncio
+
+@node(output_name="doubled")
+async def double(x: int) -> int:
+    await asyncio.sleep(0.1)
+    return x * 2
+
+graph = Graph([double])
+runner = AsyncRunner()
+result = await runner.run(graph, {"x": 5})
+print(result["doubled"])  # 10
+```
+
+### Constructor
+
+<ParamField path="cache" type="CacheBackend | None">
+  Optional cache backend for node result caching. Nodes opt in with `cache=True`
+</ParamField>
+
+### Properties
+
+<ResponseField name="capabilities" type="RunnerCapabilities">
+  Capabilities object describing:
+  - `supports_cycles=True`
+  - `supports_async_nodes=True`
+  - `supports_streaming=False`
+  - `returns_coroutine=True`
+  - `supports_interrupts=True`
+</ResponseField>
+
+<ResponseField name="default_max_iterations" type="int">
+  Default iteration cap for cyclic graphs (1000)
+</ResponseField>
+
+<ResponseField name="supported_node_types" type="set[type[HyperNode]]">
+  Node types this runner can execute: `{FunctionNode, GraphNode, IfElseNode, RouteNode, InterruptNode}`
+</ResponseField>
+
+### Methods
+
+#### run
+
+```python
+result = await runner.run(
+    graph,
+    {"x": 5},
+    max_concurrency=10
+)
+```
+
+Execute a graph asynchronously.
+
+<ParamField path="graph" type="Graph" required>
+  The graph to execute
+</ParamField>
+
+<ParamField path="values" type="dict[str, Any] | None">
+  Optional input values dict
+</ParamField>
+
+<ParamField path="select" type="str | list[str]" default="**">
+  Which outputs to return
+</ParamField>
+
+<ParamField path="on_missing" type="Literal['ignore', 'warn', 'error']" default="ignore">
+  How to handle missing selected outputs
+</ParamField>
+
+<ParamField path="on_internal_override" type="Literal['ignore', 'warn', 'error']" default="warn">
+  How to handle non-conflicting internal input overrides
+</ParamField>
+
+<ParamField path="entrypoint" type="str | None">
+  Optional explicit cycle entry point node name
+</ParamField>
+
+<ParamField path="max_iterations" type="int | None">
+  Max iterations for cyclic graphs (None = use default 1000)
+</ParamField>
+
+<ParamField path="max_concurrency" type="int | None">
+  Maximum number of nodes to execute concurrently within each superstep. None = unlimited
+</ParamField>
+
+<ParamField path="error_handling" type="Literal['raise', 'continue']" default="raise">
+  How to handle node execution errors
+</ParamField>
+
+<ParamField path="event_processors" type="list[EventProcessor] | None">
+  Optional list of event processors to receive execution events
+</ParamField>
+
+<ParamField path="**input_values" type="Any">
+  Input values shorthand (merged with values)
+</ParamField>
+
+<ResponseField name="RunResult">
+  Coroutine that returns RunResult with output values and execution metadata
+</ResponseField>
+
+#### arun
+
+```python
+result = await runner.arun(graph, {"x": 5})
+```
+
+Alias for `run()` - executes a graph asynchronously. Identical signature to `run()`.
+
+#### map
+
+```python
+results = await runner.map(
+    graph,
+    {"items": [1, 2, 3]},
+    map_over="items"
+)
+```
+
+Execute a graph multiple times with different inputs (async).
+
+<ParamField path="graph" type="Graph" required>
+  The graph to execute
+</ParamField>
+
+<ParamField path="values" type="dict[str, Any] | None">
+  Optional input values dict
+</ParamField>
+
+<ParamField path="map_over" type="str | list[str]" required>
+  Parameter name(s) to iterate over
+</ParamField>
+
+<ParamField path="map_mode" type="Literal['zip', 'product']" default="zip">
+  "zip" for parallel iteration, "product" for cartesian product
+</ParamField>
+
+<ParamField path="clone" type="bool | list[str]" default="False">
+  Deep-copy broadcast values per iteration
+</ParamField>
+
+<ParamField path="select" type="str | list[str]" default="**">
+  Which outputs to return
+</ParamField>
+
+<ParamField path="on_missing" type="Literal['ignore', 'warn', 'error']" default="ignore">
+  How to handle missing selected outputs
+</ParamField>
+
+<ParamField path="on_internal_override" type="Literal['ignore', 'warn', 'error']" default="warn">
+  How to handle non-conflicting internal input overrides
+</ParamField>
+
+<ParamField path="max_concurrency" type="int | None">
+  Maximum concurrent executions within each superstep
+</ParamField>
+
+<ParamField path="event_processors" type="list[EventProcessor] | None">
+  Optional list of event processors
+</ParamField>
+
+<ParamField path="**input_values" type="Any">
+  Input values shorthand
+</ParamField>
+
+<ResponseField name="list[RunResult]">
+  Coroutine that returns list of RunResult, one per iteration
+</ResponseField>
+
+#### amap
+
+```python
+results = await runner.amap(graph, {"items": [1, 2, 3]}, map_over="items")
+```
+
+Alias for `map()` - executes a graph multiple times asynchronously. Identical signature to `map()`.
+
+## RunResult
+
+Dict-like object returned by runner execution methods.
+
+```python
+result = runner.run(graph, {"x": 5})
+
+# Access outputs
+value = result["doubled"]
+value = result.get("doubled", default=0)
+
+# Check status
+if result.status == "completed":
+    print("Success!")
+
+# Access error (if failed)
+if result.error:
+    print(f"Failed: {result.error}")
+```
+
+### Properties
+
+<ResponseField name="status" type="Literal['completed', 'failed']">
+  Execution status
+</ResponseField>
+
+<ResponseField name="error" type="BaseException | None">
+  Exception if execution failed, None otherwise
+</ResponseField>
+
+### Methods
+
+Supports standard dict operations:
+- `result[key]` - Get output value, raises KeyError if missing
+- `result.get(key, default=None)` - Get output value with default
+- `key in result` - Check if output exists
+- `result.keys()` - Get output names
+- `result.values()` - Get output values
+- `result.items()` - Get (name, value) pairs
+
+## BaseRunner
+
+Abstract base class for all runners. Use SyncRunner or AsyncRunner instead of subclassing directly.
+
+### Abstract Methods
+
+<ParamField path="capabilities" type="property">
+  Must return RunnerCapabilities describing runner features
+</ParamField>
+
+<ParamField path="run" type="method">
+  Must implement graph execution
+</ParamField>
+
+<ParamField path="map" type="method">
+  Must implement batched graph execution
+</ParamField>

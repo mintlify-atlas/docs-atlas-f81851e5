@@ -1,0 +1,372 @@
+---
+title: RAG Pipeline
+description: Build a production-ready Retrieval-Augmented Generation pipeline with embedding, vector search, and Claude generation
+---
+
+A single-pass RAG pipeline that embeds queries, retrieves relevant documents, and generates answers with source citations.
+
+## When to Use
+
+- Question-answering over documents
+- Knowledge base search
+- Single-turn information retrieval
+
+<Tip>
+For multi-turn conversations with follow-up questions, see [Multi-Turn RAG](/examples/multi-turn-rag).
+</Tip>
+
+## The Pipeline
+
+```
+query → embed → retrieve → generate → answer
+```
+
+This is a pure DAG: no cycles, no branching. Data flows in one direction from input to output.
+
+## Implementation
+
+<Steps>
+
+### Set up dependencies
+
+Install the required packages:
+
+```bash
+pip install hypergraph anthropic openai chromadb
+```
+
+### Define the embedding node
+
+Embed the user's query using OpenAI's embedding model:
+
+```python
+from hypergraph import Graph, node, AsyncRunner
+from openai import OpenAI
+
+openai_client = OpenAI()
+
+@node(output_name="embedding")
+async def embed(query: str) -> list[float]:
+    """
+    Embed the query for vector search.
+    Uses OpenAI's text-embedding-3-large model.
+    """
+    response = openai_client.embeddings.create(
+        model="text-embedding-3-large",
+        input=query,
+    )
+    return response.data[0].embedding
+```
+
+<Note>
+The `output_name="embedding"` creates a named output that downstream nodes can reference.
+</Note>
+
+### Define the retrieval node
+
+Search your vector database for relevant documents:
+
+```python
+import chromadb
+
+vector_db = chromadb.Client()
+collection = vector_db.get_or_create_collection("docs")
+
+@node(output_name="docs")
+async def retrieve(embedding: list[float], top_k: int = 5) -> list[dict]:
+    """
+    Search the vector database for relevant documents.
+    Returns documents with content and metadata.
+    """
+    results = collection.query(
+        query_embeddings=[embedding],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    return [
+        {
+            "content": doc,
+            "source": meta.get("source", "unknown"),
+            "score": 1 - distance,  # Convert distance to similarity
+        }
+        for doc, meta, distance in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        )
+    ]
+```
+
+The `embedding` input is automatically wired to the `embed` node's output.
+
+### Define the generation node
+
+Generate an answer using Claude with retrieved context:
+
+```python
+from anthropic import Anthropic
+
+anthropic_client = Anthropic()
+
+@node(output_name="answer")
+def generate(docs: list[dict], query: str) -> str:
+    """
+    Generate an answer using Claude Sonnet 4.5.
+    Cites sources from retrieved documents.
+    """
+    # Format context with source attribution
+    context_parts = []
+    for i, doc in enumerate(docs, 1):
+        context_parts.append(f"[{i}] {doc['source']}:\n{doc['content']}")
+
+    context = "\n\n".join(context_parts)
+
+    message = anthropic_client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=2048,
+        system="""You are a helpful assistant that answers questions based on the provided context.
+Always cite your sources using [1], [2], etc.
+If the context doesn't contain the answer, say so clearly.""",
+        messages=[{
+            "role": "user",
+            "content": f"Context:\n{context}\n\nQuestion: {query}",
+        }],
+    )
+
+    return message.content[0].text
+```
+
+Both `docs` and `query` are automatically wired from upstream nodes.
+
+### Compose the graph
+
+```python
+rag_pipeline = Graph([embed, retrieve, generate], name="rag")
+
+# Check what inputs are needed
+print(rag_pipeline.inputs.required)  # ('query',)
+print(rag_pipeline.inputs.optional)  # ('top_k',)
+```
+
+<Tip>
+Hypergraph automatically infers edges based on output and input names. No manual wiring needed!
+</Tip>
+
+### Run the pipeline
+
+```python
+async def main():
+    runner = AsyncRunner()
+
+    result = await runner.run(rag_pipeline, {
+        "query": "How do I create a graph in hypergraph?",
+        "top_k": 5,
+    })
+
+    print(f"Answer:\n{result['answer']}")
+    print(f"\nRetrieved {len(result['docs'])} documents")
+
+# Run with asyncio
+import asyncio
+asyncio.run(main())
+```
+
+</Steps>
+
+## Add Streaming
+
+Stream the generation while retrieval happens first:
+
+```python
+@node(output_name="answer")
+def generate_streaming(docs: list[dict], query: str) -> str:
+    """Generate with streaming output."""
+
+    context_parts = [f"[{i}] {doc['source']}:\n{doc['content']}"
+                     for i, doc in enumerate(docs, 1)]
+    context = "\n\n".join(context_parts)
+
+    chunks = []
+    print("Answer: ", end="")
+
+    with anthropic_client.messages.stream(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=2048,
+        system="Answer based on context. Cite sources.",
+        messages=[{
+            "role": "user",
+            "content": f"Context:\n{context}\n\nQuestion: {query}",
+        }],
+    ) as stream:
+        for text in stream.text_stream:
+            print(text, end="", flush=True)
+            chunks.append(text)
+
+    print("\n")
+    return "".join(chunks)
+```
+
+## Add Reranking
+
+Add a reranking step for better relevance:
+
+<CodeGroup>
+
+```python Cohere Reranker
+import cohere
+
+cohere_client = cohere.Client()
+
+@node(output_name="docs")
+async def retrieve(embedding: list[float], top_k: int = 20) -> list[dict]:
+    """Retrieve more candidates for reranking."""
+    results = collection.query(
+        query_embeddings=[embedding],
+        n_results=top_k,
+    )
+    return [{
+        "content": doc,
+        "source": meta.get("source", "unknown")
+    } for doc, meta in zip(results["documents"][0], results["metadatas"][0])]
+
+@node(output_name="reranked_docs")
+def rerank(docs: list[dict], query: str, top_k: int = 5) -> list[dict]:
+    """Rerank documents using Cohere's rerank API."""
+    results = cohere_client.rerank(
+        query=query,
+        documents=[d["content"] for d in docs],
+        top_n=top_k,
+        model="rerank-english-v3.0",
+    )
+
+    return [docs[result.index] for result in results.results]
+
+@node(output_name="answer")
+def generate(reranked_docs: list[dict], query: str) -> str:
+    # Uses reranked_docs instead of docs
+    ...
+
+rag_with_rerank = Graph([embed, retrieve, rerank, generate])
+```
+
+```python Custom Cross-Encoder
+from sentence_transformers import CrossEncoder
+
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+@node(output_name="reranked_docs")
+def rerank(docs: list[dict], query: str, top_k: int = 5) -> list[dict]:
+    """Rerank documents using a cross-encoder."""
+    scores = reranker.predict([
+        (query, doc["content"]) for doc in docs
+    ])
+    ranked = sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)
+    return [doc for doc, _ in ranked[:top_k]]
+```
+
+</CodeGroup>
+
+## Add Query Expansion
+
+Expand the query for better retrieval:
+
+```python
+@node(output_name="expanded_query")
+def expand_query(query: str) -> str:
+    """Expand query with related terms."""
+
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=200,
+        messages=[{
+            "role": "user",
+            "content": f"""Expand this search query by adding 2-3 related terms or phrasings.
+Return only the expanded query, no explanation.
+
+Original query: {query}""",
+        }],
+    )
+
+    return response.content[0].text
+
+@node(output_name="embedding")
+async def embed(expanded_query: str) -> list[float]:
+    """Embed the expanded query."""
+    response = openai_client.embeddings.create(
+        model="text-embedding-3-large",
+        input=expanded_query,
+    )
+    return response.data[0].embedding
+
+rag_with_expansion = Graph([expand_query, embed, retrieve, generate])
+```
+
+## Testing
+
+Test individual nodes and the full pipeline:
+
+```python
+import pytest
+from hypergraph import AsyncRunner
+
+@pytest.fixture
+def runner():
+    return AsyncRunner()
+
+@pytest.mark.asyncio
+async def test_rag_pipeline(runner):
+    result = await runner.run(rag_pipeline, {
+        "query": "What is hypergraph?",
+    })
+
+    assert "answer" in result
+    assert len(result["answer"]) > 50
+    assert len(result["docs"]) > 0
+
+def test_embed():
+    """Test embedding in isolation."""
+    import asyncio
+    embedding = asyncio.run(embed.func("test query"))
+
+    assert isinstance(embedding, list)
+    assert len(embedding) > 0
+    assert all(isinstance(x, float) for x in embedding)
+
+def test_generate():
+    """Test generation with mock docs."""
+    docs = [
+        {"content": "Hypergraph is a workflow framework.", "source": "docs"},
+        {"content": "It supports DAGs and cycles.", "source": "readme"},
+    ]
+
+    answer = generate.func(docs, "What is hypergraph?")
+
+    assert "workflow" in answer.lower() or "framework" in answer.lower()
+```
+
+<Note>
+Every node decorated with `@node` has a `.func` attribute for testing without the framework.
+</Note>
+
+## What's Next?
+
+<CardGroup cols={2}>
+
+<Card title="Multi-Turn RAG" icon="comments" href="/examples/multi-turn-rag">
+  Add conversation loops with follow-up questions
+</Card>
+
+<Card title="Data Pipeline" icon="database" href="/examples/data-pipeline">
+  Build ETL workflows for batch processing
+</Card>
+
+<Card title="Evaluation Harness" icon="flask" href="/examples/evaluation-harness">
+  Test your RAG system at scale
+</Card>
+
+<Card title="Hierarchical Composition" icon="sitemap" href="/patterns/hierarchical">
+  Nest this pipeline in larger workflows
+</Card>
+
+</CardGroup>

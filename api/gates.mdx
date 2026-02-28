@@ -1,0 +1,340 @@
+---
+title: Gates
+description: Control flow and routing nodes for branching logic
+---
+
+# Gates
+
+Gate nodes control execution flow in graphs. They make routing decisions but do not produce data outputs.
+
+## Gate Decorators
+
+### @route
+
+```python
+from hypergraph import route, END
+
+@route(targets=["process_a", "process_b", END])
+def decide(x: int) -> str:
+    if x == 0:
+        return END
+    return "process_a" if x > 0 else "process_b"
+```
+
+Decorator to create a RouteNode from a routing function.
+
+<ParamField path="targets" type="list[str | type[END]] | dict[str | type[END], str]" required>
+  Valid target names. Can be a list or dict with descriptions for visualization
+</ParamField>
+
+<ParamField path="fallback" type="str | type[END] | None">
+  Default target if function returns None (incompatible with `multi_target`)
+</ParamField>
+
+<ParamField path="multi_target" type="bool" default="False">
+  If True, function returns list of targets to run in parallel
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Cache the routing function's return value. On cache hit, the runner restores the routing decision without calling the function
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="default_open" type="bool" default="True">
+  If True, targets may execute before the gate runs the first time. If False, targets are blocked until the gate executes and records a decision
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+<ResponseField name="RouteNode">
+  Returns a RouteNode instance
+</ResponseField>
+
+#### Return Value
+
+The decorated function should return:
+- A target name (str) to activate that node
+- `END` to terminate execution along this path
+- `None` to use fallback (if set) or do nothing
+- A list of targets if `multi_target=True`
+
+### @ifelse
+
+```python
+from hypergraph import ifelse, END
+
+@ifelse(when_true="process", when_false="skip")
+def is_valid(data: dict) -> bool:
+    return data.get("valid", False)
+```
+
+Decorator to create an IfElseNode from a boolean function. Syntactic sugar for the common if/else branching pattern.
+
+<ParamField path="when_true" type="str | type[END]" required>
+  Target to activate when function returns True
+</ParamField>
+
+<ParamField path="when_false" type="str | type[END]" required>
+  Target to activate when function returns False
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Cache the routing function's return value
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="default_open" type="bool" default="True">
+  If True, targets may execute before the gate runs the first time. If False, targets are blocked until the gate executes
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+<ResponseField name="IfElseNode">
+  Returns an IfElseNode instance
+</ResponseField>
+
+#### Return Value
+
+The decorated function should return:
+- `True`: Routes to `when_true` target
+- `False`: Routes to `when_false` target
+
+## Gate Classes
+
+### GateNode
+
+Abstract base class for routing/control flow nodes. Gate nodes make routing decisions but do not produce data outputs.
+
+<ParamField path="name" type="str">
+  Node name
+</ParamField>
+
+<ParamField path="inputs" type="tuple[str, ...]">
+  Input parameter names from function signature
+</ParamField>
+
+<ParamField path="outputs" type="tuple[str, ...]">
+  Always empty tuple or emit-only outputs (gates produce no data)
+</ParamField>
+
+<ParamField path="targets" type="list[str | type[END]]">
+  List of valid target names (or END)
+</ParamField>
+
+<ParamField path="descriptions" type="dict[str | type[END] | bool, str]">
+  Optional descriptions for visualization
+</ParamField>
+
+<ParamField path="func" type="Callable">
+  The routing function
+</ParamField>
+
+#### Properties
+
+<ResponseField name="cache" type="bool">
+  Whether routing function results should be cached
+</ResponseField>
+
+<ResponseField name="hide" type="bool">
+  Whether this node is hidden from visualization
+</ResponseField>
+
+<ResponseField name="wait_for" type="tuple[str, ...]">
+  Ordering-only inputs this gate waits for
+</ResponseField>
+
+<ResponseField name="data_outputs" type="tuple[str, ...]">
+  Gates produce no data outputs (always empty tuple)
+</ResponseField>
+
+<ResponseField name="is_async" type="bool">
+  Route functions must be sync, so always False
+</ResponseField>
+
+<ResponseField name="is_generator" type="bool">
+  Route functions must not be generators, so always False
+</ResponseField>
+
+### RouteNode
+
+Routes execution to target nodes based on a routing function's return value.
+
+```python
+from hypergraph import RouteNode, END
+
+def decide(x: int) -> str:
+    if x == 0:
+        return END
+    return "process_a" if x > 0 else "process_b"
+
+node = RouteNode(decide, targets=["process_a", "process_b", END])
+```
+
+<ParamField path="func" type="Callable[..., str | type[END] | list[str | type[END]] | None]" required>
+  Function that returns target name(s) or END
+</ParamField>
+
+<ParamField path="targets" type="list[str | type[END]] | dict[str | type[END], str]" required>
+  Valid targets (list or dict with descriptions)
+</ParamField>
+
+<ParamField path="fallback" type="str | type[END] | None">
+  Default target if func returns None (incompatible with `multi_target`)
+</ParamField>
+
+<ParamField path="multi_target" type="bool" default="False">
+  If True, func returns list of targets to run in parallel
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache routing decisions
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="default_open" type="bool" default="True">
+  If True, targets may execute before the gate runs the first time
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+#### Properties
+
+<ResponseField name="fallback" type="str | type[END] | None">
+  Default target if function returns None
+</ResponseField>
+
+<ResponseField name="multi_target" type="bool">
+  Whether function returns list of targets
+</ResponseField>
+
+### IfElseNode
+
+Binary gate that routes based on boolean decision.
+
+```python
+from hypergraph import IfElseNode
+
+def is_valid(data: dict) -> bool:
+    return data.get("valid", False)
+
+node = IfElseNode(is_valid, when_true="process", when_false="skip")
+```
+
+<ParamField path="func" type="Callable[..., bool]" required>
+  Function that returns True or False
+</ParamField>
+
+<ParamField path="when_true" type="str | type[END]" required>
+  Target to activate when func returns True
+</ParamField>
+
+<ParamField path="when_false" type="str | type[END]" required>
+  Target to activate when func returns False
+</ParamField>
+
+<ParamField path="cache" type="bool" default="False">
+  Whether to cache routing decisions
+</ParamField>
+
+<ParamField path="hide" type="bool" default="False">
+  Whether to hide from visualization
+</ParamField>
+
+<ParamField path="default_open" type="bool" default="True">
+  If True, targets may execute before the gate runs the first time
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Node name (default: `func.__name__`)
+</ParamField>
+
+<ParamField path="rename_inputs" type="dict[str, str] | None">
+  Mapping to rename inputs `{old: new}`
+</ParamField>
+
+<ParamField path="emit" type="str | tuple[str, ...] | None">
+  Ordering-only output name(s)
+</ParamField>
+
+<ParamField path="wait_for" type="str | tuple[str, ...] | None">
+  Ordering-only input name(s)
+</ParamField>
+
+#### Properties
+
+<ResponseField name="when_true" type="str | type[END]">
+  Target when function returns True
+</ResponseField>
+
+<ResponseField name="when_false" type="str | type[END]">
+  Target when function returns False
+</ResponseField>
+
+## END Sentinel
+
+### END
+
+Sentinel class indicating execution should terminate along this path.
+
+```python
+from hypergraph import route, END
+
+@route(targets=["process", END])
+def decide(x: int) -> str:
+    return END if x == 0 else "process"
+```
+
+<Note>
+  END is a class, not an instance. Use it directly (END, not END()).
+</Note>

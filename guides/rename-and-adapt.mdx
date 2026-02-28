@@ -1,0 +1,296 @@
+---
+title: Rename and Adapt Nodes
+description: Reuse functions in different contexts with with_inputs(), with_outputs(), and with_name()
+---
+
+Reuse the same function in different contexts by renaming inputs, outputs, and the node itself.
+
+## Why Rename?
+
+The same logic often applies in different contexts with different naming conventions:
+
+```python
+# Same embedding function, different contexts
+embed_query = embed.with_inputs(text="query")
+embed_document = embed.with_inputs(text="document")
+
+# Same validation, different pipelines
+validate_order = validate.with_outputs(result="order_valid")
+validate_user = validate.with_outputs(result="user_valid")
+```
+
+<Tip>
+  Renaming lets you reuse battle-tested functions across multiple graphs without duplicating code.
+</Tip>
+
+## Renaming Inputs
+
+Use `.with_inputs()` to rename input parameters:
+
+```python
+from hypergraph import node
+
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return embedder.encode(text)
+
+# Original takes "text"
+print(embed.inputs)  # ('text',)
+
+# Adapted to take "query"
+query_embed = embed.with_inputs(text="query")
+print(query_embed.inputs)  # ('query',)
+
+# Adapted to take "document"
+doc_embed = embed.with_inputs(text="document")
+print(doc_embed.inputs)  # ('document',)
+```
+
+<Note>
+  The original node is unchanged. `.with_inputs()` returns a **new node** with the renamed inputs.
+</Note>
+
+## Renaming Outputs
+
+Use `.with_outputs()` to rename output names:
+
+```python
+@node(output_name="result")
+def process(data: str) -> str:
+    return data.upper()
+
+# Original produces "result"
+print(process.outputs)  # ('result',)
+
+# Adapted to produce "processed_text"
+text_processor = process.with_outputs(result="processed_text")
+print(text_processor.outputs)  # ('processed_text',)
+```
+
+## Renaming the Node
+
+Use `.with_name()` to give the node a new name:
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return embedder.encode(text)
+
+print(embed.name)  # 'embed'
+
+query_embedder = embed.with_name("query_embedder")
+print(query_embedder.name)  # 'query_embedder'
+```
+
+<Tip>
+  Node names appear in logs, visualizations, and error messages. Use descriptive names to make debugging easier.
+</Tip>
+
+## Chaining Renames
+
+All rename methods return new instances, so you can chain them:
+
+```python
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return embedder.encode(text)
+
+query_embed = (
+    embed
+    .with_name("embed_query")
+    .with_inputs(text="query")
+    .with_outputs(embedding="query_embedding")
+)
+
+print(query_embed.name)     # 'embed_query'
+print(query_embed.inputs)   # ('query',)
+print(query_embed.outputs)  # ('query_embedding',)
+```
+
+## Multiple Inputs/Outputs
+
+Rename multiple at once:
+
+```python
+@node(output_name=("mean", "std"))
+def statistics(data: list, weights: list) -> tuple[float, float]:
+    mean_val = sum(d * w for d, w in zip(data, weights)) / sum(weights)
+    variance = sum(w * (d - mean_val) ** 2 for d, w in zip(data, weights)) / sum(weights)
+    std_val = variance ** 0.5
+    return mean_val, std_val
+
+# Rename both inputs
+adapted = statistics.with_inputs(data="values", weights="importance")
+print(adapted.inputs)  # ('values', 'importance')
+
+# Rename both outputs
+adapted = statistics.with_outputs(mean="average", std="deviation")
+print(adapted.outputs)  # ('average', 'deviation')
+```
+
+## Use Case: Same Function in Multiple Roles
+
+<CodeGroup>
+```python Define Base Function
+from hypergraph import Graph, node
+
+@node(output_name="embedding")
+def embed(text: str) -> list[float]:
+    return embedder.encode(text)
+```
+
+```python Create Specialized Versions
+# Create specialized versions
+embed_query = (
+    embed
+    .with_name("embed_query")
+    .with_inputs(text="query")
+    .with_outputs(embedding="query_vec")
+)
+
+embed_doc = (
+    embed
+    .with_name("embed_doc")
+    .with_inputs(text="document")
+    .with_outputs(embedding="doc_vec")
+)
+
+@node(output_name="similarity")
+def compare(query_vec: list[float], doc_vec: list[float]) -> float:
+    return cosine_similarity(query_vec, doc_vec)
+
+# Both embedding variants feed into compare
+similarity_pipeline = Graph([embed_query, embed_doc, compare])
+print(similarity_pipeline.inputs.required)  # ('query', 'document')
+```
+</CodeGroup>
+
+<Tip>
+  This pattern lets you test the core `embed` function once and reuse it in multiple contexts with different wiring.
+</Tip>
+
+## Use Case: Adapting Graphs
+
+Graphs can be renamed too when used as nodes:
+
+```python
+# Original RAG pipeline
+rag = Graph([embed, retrieve, generate], name="rag")
+print(rag.inputs.required)  # ('text', 'query')
+
+# Adapt for search context
+search_rag = (
+    rag.as_node()
+    .with_name("search_rag")
+    .with_inputs(text="search_query", query="search_query")
+)
+
+# Adapt for chat context
+chat_rag = (
+    rag.as_node()
+    .with_name("chat_rag")
+    .with_inputs(text="user_message", query="user_message")
+)
+```
+
+## Error Handling
+
+If you try to rename a non-existent input/output, you get a clear error:
+
+```python
+@node(output_name="result")
+def process(x: int) -> int:
+    return x * 2
+
+# Try to rename non-existent input
+process.with_inputs(y="new_name")
+# RenameError: 'y' not found. Current inputs: ('x',)
+```
+
+If you renamed and try to use the old name:
+
+```python
+renamed = process.with_inputs(x="input")
+renamed.with_inputs(x="different")
+# RenameError: 'x' was renamed to 'input'. Current inputs: ('input',)
+```
+
+<Warning>
+  Once you rename an input/output, the old name is no longer available. Chain renames carefully to avoid confusion.
+</Warning>
+
+## Testing Renamed Nodes
+
+The underlying function is the same:
+
+```python
+@node(output_name="result")
+def double(x: int) -> int:
+    return x * 2
+
+renamed = double.with_inputs(x="value").with_outputs(result="doubled")
+
+# Both call the same function
+assert double.func(5) == 10
+assert renamed.func(5) == 10  # Same underlying function
+
+# But in a graph, they wire differently
+g1 = Graph([double])
+print(g1.inputs.required)  # ('x',)
+
+g2 = Graph([renamed])
+print(g2.inputs.required)  # ('value',)
+```
+
+<Tip>
+  Test the core function once with `.func()`, then verify wiring in each graph context.
+</Tip>
+
+## Real-World Example: Multi-Stage RAG
+
+```python
+from hypergraph import Graph, node
+
+# Base retrieval node
+@node(output_name="docs")
+def retrieve(embedding: list[float], k: int = 5) -> list[str]:
+    return vector_db.search(embedding, k=k)
+
+# Coarse retrieval (100 docs)
+coarse_retrieve = (
+    retrieve
+    .with_name("coarse_retrieve")
+    .with_inputs(embedding="query_embedding")
+    .with_outputs(docs="coarse_docs")
+    .bind(k=100)
+)
+
+# Fine retrieval (10 docs)
+fine_retrieve = (
+    retrieve
+    .with_name("fine_retrieve")
+    .with_inputs(embedding="reranked_embedding")
+    .with_outputs(docs="final_docs")
+    .bind(k=10)
+)
+
+# Two-stage pipeline
+multi_stage = Graph([
+    embed_query,
+    coarse_retrieve,
+    rerank,
+    fine_retrieve,
+    generate,
+])
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Batch Processing" icon="list" href="/guides/batch-processing">
+    Process multiple inputs with `runner.map()`
+  </Card>
+  <Card title="Hierarchical Composition" icon="sitemap" href="/patterns/hierarchical">
+    Adapt graphs for different contexts
+  </Card>
+</CardGroup>

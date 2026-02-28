@@ -1,0 +1,434 @@
+---
+title: "When to Use Hypergraph"
+description: "Decide if hypergraph is the right tool for your project. Understand the use cases where hypergraph shines and where it doesn't."
+---
+
+This guide helps you decide if hypergraph is the right tool for your project.
+
+## Use Hypergraph When...
+
+### You Want One Framework to Master
+
+Instead of learning one tool for DAGs and another for agents, learn one framework that handles both.
+
+<div className="use-case">
+  <strong>The same patterns work across the entire spectrum:</strong>
+  
+  <table>
+    <thead>
+      <tr>
+        <th>Use Case</th>
+        <th>What You Learn</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>ETL pipelines</td>
+        <td>Same <code>@node</code> decorator, same <code>Graph</code>, same runner</td>
+      </tr>
+      <tr>
+        <td>Agentic loops</td>
+        <td>Add <code>@route</code> and <code>END</code>, same everything else</td>
+      </tr>
+      <tr>
+        <td>Multi-agent orchestration</td>
+        <td>Nest graphs with <code>.as_node()</code>, same mental model</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+### Your Workflows Have Natural Hierarchy
+
+Real AI systems aren't flat. They have structure:
+
+```
+Evaluation Loop (DAG)
+└── Multi-turn Chat (cyclic)
+    └── RAG Pipeline (DAG)
+        └── Embedding (single node)
+```
+
+If your workflows have this kind of nesting — **DAGs inside cycles, cycles inside DAGs** — hypergraph's hierarchical composition is a natural fit.
+
+<CardGroup cols={2}>
+  <Card title="Evaluation Harness" icon="flask">
+    <strong>Outer:</strong> Evaluation harness (DAG)<br/>
+    <strong>Inner:</strong> Chat agent (cyclic)<br/>
+    <strong>Pattern:</strong> Test cyclic workflows at scale
+  </Card>
+  
+  <Card title="Prompt Optimization" icon="wand-magic-sparkles">
+    <strong>Outer:</strong> Prompt optimization (cyclic)<br/>
+    <strong>Inner:</strong> Pipeline under test (DAG)<br/>
+    <strong>Pattern:</strong> Iterate on prompts
+  </Card>
+  
+  <Card title="Batch Processing" icon="list">
+    <strong>Outer:</strong> Batch processing (DAG)<br/>
+    <strong>Inner:</strong> Per-item workflow (may have branches)<br/>
+    <strong>Pattern:</strong> Fan-out with <code>.map()</code>
+  </Card>
+  
+  <Card title="Multi-Turn RAG" icon="comments">
+    <strong>Outer:</strong> Conversation loop (cyclic)<br/>
+    <strong>Inner:</strong> RAG retrieval (DAG)<br/>
+    <strong>Pattern:</strong> Query → retrieve → generate → repeat
+  </Card>
+</CardGroup>
+
+### You Value Pure, Testable Functions
+
+If you want to test your logic without framework setup or mocking:
+
+```python
+# This works — no Graph, no Runner, no setup
+def test_my_node():
+    result = my_node.func(input_value)
+    assert result == expected
+```
+
+<Tip>
+  Your functions are just functions. The `@node` decorator adds metadata, not magic.
+</Tip>
+
+### You're Building Multi-Turn AI Workflows
+
+Conversational AI, agentic loops, iterative refinement — these require cycles:
+
+```python
+from hypergraph import Graph, node, route, END
+
+@node(output_name="draft")
+def generate(context: str, feedback: str = "") -> str:
+    return llm.generate(context, feedback)
+
+@node(output_name="quality")
+def evaluate(draft: str) -> float:
+    return quality_score(draft)
+
+@route(targets=["generate", END])
+def should_continue(quality: float, attempts: int) -> str:
+    if quality > 0.9 or attempts >= 5:
+        return END
+    return "generate"  # Loop back for another iteration
+
+@node(output_name="attempts")
+def increment(attempts: int = 0) -> int:
+    return attempts + 1
+
+graph = Graph([generate, evaluate, should_continue, increment])
+```
+
+<Info>
+  Hypergraph handles cycles naturally with `@route` and `END`. No external loop needed.
+</Info>
+
+### You Want Minimal Boilerplate
+
+Define functions, name outputs, and let hypergraph infer the edges:
+
+<CodeGroup>
+```python Hypergraph (12 lines)
+from hypergraph import Graph, node
+
+@node(output_name="embedding")
+def embed(query: str) -> list[float]:
+    return model.embed(query)
+
+@node(output_name="docs")
+def retrieve(embedding: list[float]) -> list[str]:
+    return db.search(embedding)
+
+@node(output_name="answer")
+def generate(docs: list[str], query: str) -> str:
+    return llm.generate(docs, query)
+
+graph = Graph([embed, retrieve, generate])
+```
+
+```python LangGraph (25 lines)
+from langgraph.graph import StateGraph
+from typing import TypedDict
+
+class State(TypedDict):
+    query: str
+    embedding: list[float]
+    docs: list[str]
+    answer: str
+
+def embed(state: State) -> dict:
+    return {"embedding": model.embed(state["query"])}
+
+def retrieve(state: State) -> dict:
+    return {"docs": db.search(state["embedding"])}
+
+def generate(state: State) -> dict:
+    return {"answer": llm.generate(state["docs"], state["query"])}
+
+graph = StateGraph(State)
+graph.add_node("embed", embed)
+graph.add_node("retrieve", retrieve)
+graph.add_node("generate", generate)
+graph.add_edge("embed", "retrieve")
+graph.add_edge("retrieve", "generate")
+graph.set_entry_point("embed")
+graph.set_finish_point("generate")
+compiled = graph.compile()
+```
+</CodeGroup>
+
+## Don't Use Hypergraph When...
+
+### You Need a Simple Script
+
+If your task is "call this function, then call that function," you don't need a graph framework:
+
+```python
+# Just do this
+result1 = step_one(input)
+result2 = step_two(result1)
+result3 = step_three(result2)
+```
+
+<Warning>
+  Hypergraph adds value when you have non-trivial composition, reuse, or control flow. For simple sequential scripts, plain Python is clearer.
+</Warning>
+
+**When to consider hypergraph instead:**
+- You have 5+ steps with complex dependencies
+- You need to reuse the pipeline with different inputs
+- You want to test individual steps in isolation
+- You need conditional branching or loops
+- You want to compose smaller pipelines into larger ones
+
+### You Need Production Maturity Today
+
+Hypergraph is in **alpha**. The core features work, but:
+
+<Warning>
+  <ul>
+    <li>Breaking API changes are possible</li>
+    <li>Ecosystem integrations are limited</li>
+    <li>Community is smaller than mature alternatives</li>
+    <li>Production testing at scale is limited</li>
+  </ul>
+</Warning>
+
+<Info>
+  If you need a battle-tested solution today, consider:
+  - **LangGraph** for agentic workflows
+  - **Hamilton** for data/ML pipelines
+  - **Prefect** for production orchestration
+  
+  See the [Comparison](/comparison) page for detailed framework comparison.
+</Info>
+
+### You're Doing Simple LLM Calls
+
+If you're just calling an LLM API and returning the result, you don't need orchestration:
+
+```python
+# Just call the API directly
+response = openai.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": query}],
+)
+print(response.choices[0].message.content)
+```
+
+**When to use hypergraph for LLM workflows:**
+- You're chaining multiple LLM calls (e.g., RAG, multi-step reasoning)
+- You need retrieval, reranking, or other preprocessing
+- You have conditional logic (e.g., route based on query type)
+- You want multi-turn conversations with state
+
+### You Need Specialized Orchestration Features
+
+Hypergraph focuses on the graph model. If you need:
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>Consider Instead</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Scheduling, retries, monitoring</td>
+      <td>Prefect, Temporal</td>
+    </tr>
+    <tr>
+      <td>Distributed execution across clusters</td>
+      <td>Ray, Dask, Airflow</td>
+    </tr>
+    <tr>
+      <td>HPC/SLURM integration</td>
+      <td>Pipefunc</td>
+    </tr>
+    <tr>
+      <td>Built-in lineage tracking UI</td>
+      <td>Hamilton</td>
+    </tr>
+    <tr>
+      <td>LangChain tool integrations</td>
+      <td>LangGraph</td>
+    </tr>
+  </tbody>
+</table>
+
+## Summary Decision Matrix
+
+<table>
+  <thead>
+    <tr>
+      <th>If you want...</th>
+      <th>Use hypergraph?</th>
+      <th>Why</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>One framework for DAGs and agents</td>
+      <td>✅ Yes</td>
+      <td>Core strength - unified model</td>
+    </tr>
+    <tr>
+      <td>Hierarchical workflow composition</td>
+      <td>✅ Yes</td>
+      <td>First-class support with <code>.as_node()</code></td>
+    </tr>
+    <tr>
+      <td>Pure, testable functions</td>
+      <td>✅ Yes</td>
+      <td>Functions are framework-agnostic</td>
+    </tr>
+    <tr>
+      <td>Multi-turn AI workflows</td>
+      <td>✅ Yes</td>
+      <td>Native cycle support with <code>@route</code></td>
+    </tr>
+    <tr>
+      <td>Minimal boilerplate</td>
+      <td>✅ Yes</td>
+      <td>Automatic edge inference</td>
+    </tr>
+    <tr>
+      <td>Simple scripts (3-5 steps)</td>
+      <td>❌ No</td>
+      <td>Plain Python is clearer</td>
+    </tr>
+    <tr>
+      <td>Production maturity today</td>
+      <td>⚠️ Maybe</td>
+      <td>Evaluate alpha status carefully</td>
+    </tr>
+    <tr>
+      <td>Simple LLM API calls</td>
+      <td>❌ No</td>
+      <td>Call the API directly</td>
+    </tr>
+    <tr>
+      <td>Distributed execution</td>
+      <td>❌ No</td>
+      <td>Use Ray, Dask, or Airflow</td>
+    </tr>
+  </tbody>
+</table>
+
+## Real-World Use Cases
+
+### Where Hypergraph Shines
+
+<Steps>
+  <Step title="Multi-Turn RAG Systems">
+    Conversation loops with retrieval steps inside each turn. Natural hierarchy: cyclic chat contains DAG retrieval.
+    
+    ```python
+    rag = Graph([embed, retrieve, rerank, generate])  # DAG
+    chat = Graph([rag.as_node(), accumulate, should_continue])  # Cycle
+    ```
+  </Step>
+  
+  <Step title="Agent Evaluation Harnesses">
+    Test agentic workflows at scale. DAG evaluation contains cyclic agents.
+    
+    ```python
+    agent = Graph([decide, act, observe, should_continue])  # Cycle
+    eval_harness = Graph([load_cases, agent.as_node(), score])  # DAG
+    ```
+  </Step>
+  
+  <Step title="Prompt Optimization Loops">
+    Iteratively improve prompts. Cyclic optimization contains DAG workflow under test.
+    
+    ```python
+    workflow = Graph([preprocess, generate, postprocess])  # DAG
+    optimize = Graph([workflow.as_node(), evaluate, improve, should_continue])  # Cycle
+    ```
+  </Step>
+  
+  <Step title="Complex ETL with Conditional Logic">
+    Data pipelines with routing based on content type, validation, or quality.
+    
+    ```python
+    @route(targets=["process_json", "process_csv", "process_parquet"])
+    def route_by_type(file_type: str) -> str:
+        return f"process_{file_type}"
+    
+    graph = Graph([detect_type, route_by_type, process_json, process_csv, ...])
+    ```
+  </Step>
+</Steps>
+
+### Where Hypergraph Doesn't Fit
+
+<Warning>
+  <Steps>
+    <Step title="One-off Scripts">
+      ```python
+      # Just do this
+      data = load()
+      cleaned = clean(data)
+      save(cleaned)
+      ```
+    </Step>
+    
+    <Step title="Production Scheduling">
+      Need cron, retries, monitoring? Use Prefect or Temporal.
+    </Step>
+    
+    <Step title="Distributed Training">
+      Training large models across clusters? Use Ray or Dask.
+    </Step>
+    
+    <Step title="Simple API Endpoints">
+      ```python
+      @app.post("/chat")
+      def chat(query: str):
+          return llm.generate(query)
+      ```
+    </Step>
+  </Steps>
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Try hypergraph with a working example in 5 minutes.
+  </Card>
+  
+  <Card title="Comparison" icon="balance-scale" href="/comparison">
+    See detailed comparison with LangGraph, Hamilton, and others.
+  </Card>
+  
+  <Card title="Core Concepts" icon="book" href="/core-concepts/nodes">
+    Deep dive into nodes, graphs, and runners.
+  </Card>
+  
+  <Card title="Real-World Examples" icon="code" href="/examples/rag-pipeline">
+    Production-ready RAG, evaluation, and multi-agent examples.
+  </Card>
+</CardGroup>
